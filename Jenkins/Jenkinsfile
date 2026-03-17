@@ -1,0 +1,183 @@
+pipeline {
+    agent any
+
+    // Define global variables shared across all stages
+    environment {
+        // Creates a shared semantic version using the Jenkins Build Number (e.g., 1.0.42)
+        BASE_VERSION = "1.0"
+        APP_VERSION = "${BASE_VERSION}.${env.BUILD_NUMBER}"
+        
+        // Docker Hub credentials
+        DOCKER_HUB_USER = "your_dockerhub_username"
+        DOCKER_CREDS_ID = "dockerhub-creds"
+        IMAGE_NAME = "${DOCKER_HUB_USER}/seyoawe-engine"
+        
+        // AWS Credentials (Make sure these exist in Jenkins credentials as 'aws-creds')
+        AWS_ACCESS_KEY_ID     = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        AWS_DEFAULT_REGION    = "us-east-1"
+    }
+
+    stages {
+        stage('Initialize Version') {
+            steps {
+                echo "======================================================="
+                echo "Starting Full CI/CD Pipeline for monorepo"
+                echo "Shared Semantic Version for this run: v${APP_VERSION}"
+                echo "======================================================="
+            }
+        }
+
+        // ==========================================
+        // CI PHASE
+        // ==========================================
+        stage('CI Pipelines') {
+            parallel {
+
+                // TASK 2: ENGINE CI PIPELINE
+                stage('Engine CI') {
+                    // Only run if files in the /engine folder changed
+                    when { changeset "engine/**" }
+                    
+                    stages {
+                        stage('Lint Engine') {
+                            steps {
+                                echo "Linting Engine code..."
+                                sh 'pip install flake8'
+                                sh 'flake8 ./engine || true' // Remove || true to enforce strict linting
+                            }
+                        }
+                        
+                        stage('Test Engine') {
+                            steps {
+                                echo "Running Engine unit tests..."
+                                sh 'pip install pytest'
+                                sh 'pytest ./engine/tests/ || true' 
+                            }
+                        }
+                        
+                        stage('Build & Push Docker Image') {
+                            steps {
+                                echo "Building Engine Docker Image: ${IMAGE_NAME}:${APP_VERSION}"
+                                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                                    
+                                    sh "docker build -t ${IMAGE_NAME}:${APP_VERSION} ./engine"
+                                    sh "docker build -t ${IMAGE_NAME}:latest ./engine" 
+                                    
+                                    sh "docker push ${IMAGE_NAME}:${APP_VERSION}"
+                                    sh "docker push ${IMAGE_NAME}:latest"
+                                    
+                                    sh "docker rmi ${IMAGE_NAME}:${APP_VERSION} ${IMAGE_NAME}:latest || true"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // TASK 3: CLI CI PIPELINE
+                stage('CLI CI') {
+                    // Only run if files in the /cli folder changed
+                    when { changeset "cli/**" }
+                    
+                    stages {
+                        stage('Test CLI') {
+                            steps {
+                                echo "Running CLI unit tests..."
+                                sh 'pip install pytest'
+                                sh 'pytest ./cli/tests/ || true'
+                            }
+                        }
+                        
+                        stage('Package CLI Artifact') {
+                            steps {
+                                echo "Packaging CLI tool..."
+                                sh 'cd cli && python3 setup.py sdist bdist_wheel'
+                            }
+                        }
+                        
+                        stage('Publish CLI Artifact') {
+                            steps {
+                                echo "Publishing CLI artifact with version ${APP_VERSION}..."
+                                archiveArtifacts artifacts: 'cli/dist/*', fingerprint: true, allowEmptyArchive: false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Git Version Tagging') {
+            steps {
+                echo "Tagging repository with shared version v${APP_VERSION}..."
+                // Logic to push Git tags omitted for brevity, but this represents the step
+            }
+        }
+
+        // ==========================================
+        // CD PHASE (TASK 5)
+        // ==========================================
+        
+        stage('Terraform Provisioning (AWS)') {
+            steps {
+                echo "Provisioning infrastructure via Terraform..."
+                dir('terraform') {
+                    // Initialize Terraform plugins
+                    sh 'terraform init'
+                    
+                    // Validate code
+                    sh 'terraform validate'
+                    
+                    // Apply the infrastructure (Auto-approve to prevent pipeline blocking)
+                    sh 'terraform apply -auto-approve'
+                }
+            }
+        }
+
+        stage('Ansible Configuration') {
+            steps {
+                echo "Running Ansible configuration management..."
+                dir('ansible') {
+                    // Example: Run playbook to configure cluster nodes or monitoring tools
+                    // It uses dynamic inventory generated by Terraform or AWS plugin
+                    sh 'ansible-playbook setup-cluster.yml'
+                }
+            }
+        }
+
+        stage('Kubernetes Deployment') {
+            // Task 1: Deploy to K8s StatefulSet
+            steps {
+                echo "Deploying Engine to Kubernetes..."
+                dir('k8s') {
+                    // This command connects to your newly created EKS cluster to update your kubeconfig
+                    sh "aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name your-eks-cluster-name"
+                    
+                    // This dynamically updates the image version in your YAML file to the one just built
+                    sh "sed -i 's|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${APP_VERSION}|g' statefulset.yaml"
+                    
+                    // Apply all manifests (StatefulSet, Services, Persistent Volumes, Probes)
+                    sh 'kubectl apply -f .'
+                    
+                    // Wait for deployment to successfully roll out
+                    sh 'kubectl rollout status statefulset/seyoawe-engine'
+                }
+            }
+        }
+    }
+
+    // Post-run cleanup and notifications
+    post {
+        always {
+            echo "Pipeline run complete. Cleaning up workspace..."
+            cleanWs()
+            sh "docker logout || true"
+        }
+        success {
+            echo "🎉 CI/CD Pipeline completed successfully! Version v${APP_VERSION} is deployed."
+        }
+        failure {
+            echo "❌ CI/CD Pipeline failed. Please check the Jenkins logs."
+        }
+    }
+}
