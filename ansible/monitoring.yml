@@ -1,0 +1,32 @@
+---
+- name: Configure EKS Cluster and Install Monitoring
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Fetch EKS kubeconfig to allow kubectl access
+      ansible.builtin.command: >
+        aws eks update-kubeconfig
+        --name seyoawe-cluster
+        --region us-east-1
+      changed_when: true
+
+    - name: Add Prometheus community Helm repository
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: https://prometheus-community.github.io/helm-charts
+
+    - name: Install Prometheus and Grafana stack via Helm
+      kubernetes.core.helm:
+        name: monitoring-stack
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: monitoring
+        create_namespace: true
+        wait: true
+        values:
+          grafana:
+            adminPassword: "admin" # The password to log into Grafana
+            service:
+              type: LoadBalancer # Exposes Grafana to the public internet
+          prometheus:
+            prometheusSpec:
+              retention: "2d" # Keep metrics for 2 days to save disk space

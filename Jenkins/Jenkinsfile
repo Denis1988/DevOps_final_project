@@ -1,105 +1,120 @@
 pipeline {
     agent any
 
-    // Define global variables shared across all stages
     environment {
-        // Creates a shared semantic version using the Jenkins Build Number (e.g., 1.0.42)
-        BASE_VERSION = "1.0"
-        APP_VERSION = "${BASE_VERSION}.${env.BUILD_NUMBER}"
-        
-        // Docker Hub credentials
-        DOCKER_HUB_USER = "your_dockerhub_username"
-        DOCKER_CREDS_ID = "dockerhub-creds"
-        IMAGE_NAME = "${DOCKER_HUB_USER}/seyoawe-engine"
-        
-        // AWS Credentials (Make sure these exist in Jenkins credentials as 'aws-creds')
-        AWS_ACCESS_KEY_ID     = credentials('aws-access-key-id')
-        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
-        AWS_DEFAULT_REGION    = "us-east-1"
+        // Global variables and credentials
+        DOCKER_HUB_CREDS = 'dockerhub-creds'
+        AWS_CREDS_ID     = 'aws-credentials' 
+        DOCKER_USER      = 'your_dockerhub_username'
+        APP_NAME         = 'seyoawe-engine'
+        APP_VERSION      = '' // Calculated dynamically
     }
 
     stages {
-        stage('Initialize Version') {
+        stage('Initialize & Calculate Version') {
             steps {
-                echo "======================================================="
-                echo "Starting Full CI/CD Pipeline for monorepo"
-                echo "Shared Semantic Version for this run: v${APP_VERSION}"
-                echo "======================================================="
+                script {
+                    // Reads the shared version from the root VERSION file
+                    env.APP_VERSION = readFile('VERSION').trim()
+                    echo "Starting build for Global Version: ${env.APP_VERSION}"
+                }
             }
         }
 
-        // ==========================================
-        // CI PHASE
-        // ==========================================
-        stage('CI Pipelines') {
+        // CI Phase - Parallel execution of Engine and CLI
+        stage('Parallel CI Build & Test') {
             parallel {
-
-                // TASK 2: ENGINE CI PIPELINE
+                
+                // ==========================================
+                // ENGINE PIPELINE (Runs parallel to CLI)
+                // ==========================================
                 stage('Engine CI') {
-                    // Only run if files in the /engine folder changed
                     when { changeset "engine/**" }
-                    
                     stages {
-                        stage('Lint Engine') {
-                            steps {
-                                echo "Linting Engine code..."
-                                sh 'pip install flake8'
-                                sh 'flake8 ./engine || true' // Remove || true to enforce strict linting
-                            }
-                        }
-                        
                         stage('Test Engine') {
                             steps {
-                                echo "Running Engine unit tests..."
-                                sh 'pip install pytest'
-                                sh 'pytest ./engine/tests/ || true' 
+                                dir('engine') {
+                                    echo "Running Pytest for Engine..."
+                                    sh '''
+                                        python3 -m venv venv
+                                        . venv/bin/activate
+                                        pip install -r requirements.txt
+                                        pip install pytest pytest-cov
+                                        # Run tests and output results to XML for Jenkins
+                                        pytest --junitxml=engine-test-results.xml
+                                    '''
+                                }
+                            }
+                            post {
+                                always {
+                                    // Publish test results to Jenkins UI even if tests fail
+                                    junit 'engine/engine-test-results.xml'
+                                }
                             }
                         }
-                        
-                        stage('Build & Push Docker Image') {
+                        stage('Build Engine Image') {
                             steps {
-                                echo "Building Engine Docker Image: ${IMAGE_NAME}:${APP_VERSION}"
-                                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-                                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
-                                    
-                                    sh "docker build -t ${IMAGE_NAME}:${APP_VERSION} ./engine"
-                                    sh "docker build -t ${IMAGE_NAME}:latest ./engine" 
-                                    
-                                    sh "docker push ${IMAGE_NAME}:${APP_VERSION}"
-                                    sh "docker push ${IMAGE_NAME}:latest"
-                                    
-                                    sh "docker rmi ${IMAGE_NAME}:${APP_VERSION} ${IMAGE_NAME}:latest || true"
+                                dir('engine') {
+                                    echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
+                                    sh "docker build -t ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ."
+                                }
+                            }
+                        }
+                        stage('Push Engine Image') {
+                            steps {
+                                withCredentials([usernamePassword(credentialsId: env.DOCKER_HUB_CREDS, usernameVariable: 'DOCKER_USER_ID', passwordVariable: 'DOCKER_USER_PASS')]) {
+                                    sh "echo \$DOCKER_USER_PASS | docker login -u \$DOCKER_USER_ID --password-stdin"
+                                    sh "docker push ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
+                                    sh "docker tag ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ${DOCKER_USER}/${APP_NAME}:latest"
+                                    sh "docker push ${DOCKER_USER}/${APP_NAME}:latest"
                                 }
                             }
                         }
                     }
                 }
 
-                // TASK 3: CLI CI PIPELINE
+                // ==========================================
+                // CLI PIPELINE (Runs parallel to Engine)
+                // ==========================================
                 stage('CLI CI') {
-                    // Only run if files in the /cli folder changed
                     when { changeset "cli/**" }
-                    
                     stages {
                         stage('Test CLI') {
                             steps {
-                                echo "Running CLI unit tests..."
-                                sh 'pip install pytest'
-                                sh 'pytest ./cli/tests/ || true'
+                                dir('cli') {
+                                    echo "Running Pytest for CLI..."
+                                    sh '''
+                                        python3 -m venv venv
+                                        . venv/bin/activate
+                                        pip install -r requirements.txt
+                                        pip install pytest pytest-cov
+                                        # Run tests and output results to XML for Jenkins
+                                        pytest --junitxml=cli-test-results.xml
+                                    '''
+                                }
+                            }
+                            post {
+                                always {
+                                    // Publish test results to Jenkins UI even if tests fail
+                                    junit 'cli/cli-test-results.xml'
+                                }
                             }
                         }
-                        
                         stage('Package CLI Artifact') {
                             steps {
-                                echo "Packaging CLI tool..."
-                                sh 'cd cli && python3 setup.py sdist bdist_wheel'
+                                dir('cli') {
+                                    echo "Packaging CLI tool version ${env.APP_VERSION}"
+                                    sh '''
+                                        . venv/bin/activate
+                                        python setup.py sdist bdist_wheel
+                                    '''
+                                }
                             }
                         }
-                        
                         stage('Publish CLI Artifact') {
                             steps {
-                                echo "Publishing CLI artifact with version ${APP_VERSION}..."
-                                archiveArtifacts artifacts: 'cli/dist/*', fingerprint: true, allowEmptyArchive: false
+                                echo "Publishing CLI artifact to Jenkins..."
+                                archiveArtifacts artifacts: 'cli/dist/*', allowEmptyArchive: true
                             }
                         }
                     }
@@ -107,77 +122,46 @@ pipeline {
             }
         }
 
-        stage('Git Version Tagging') {
-            steps {
-                echo "Tagging repository with shared version v${APP_VERSION}..."
-                // Logic to push Git tags omitted for brevity, but this represents the step
-            }
-        }
-
-        // ==========================================
-        // CD PHASE (TASK 5)
-        // ==========================================
-        
-        stage('Terraform Provisioning (AWS)') {
-            steps {
-                echo "Provisioning infrastructure via Terraform..."
-                dir('terraform') {
-                    // Initialize Terraform plugins
-                    sh 'terraform init'
-                    
-                    // Validate code
-                    sh 'terraform validate'
-                    
-                    // Apply the infrastructure (Auto-approve to prevent pipeline blocking)
-                    sh 'terraform apply -auto-approve'
+        // CD Phase - Sequential execution after CI finishes
+        stage('Continuous Deployment (CD)') {
+            when { branch 'main' }
+            stages {
+                stage('Infrastructure (Terraform)') {
+                    steps {
+                        dir('terraform') {
+                            withCredentials([aws(credentialsId: env.AWS_CREDS_ID)]) {
+                                sh 'terraform init'
+                                sh 'terraform apply -auto-approve'
+                            }
+                        }
+                    }
                 }
-            }
-        }
-
-        stage('Ansible Configuration') {
-            steps {
-                echo "Running Ansible configuration management..."
-                dir('ansible') {
-                    // Example: Run playbook to configure cluster nodes or monitoring tools
-                    // It uses dynamic inventory generated by Terraform or AWS plugin
-                    sh 'ansible-playbook setup-cluster.yml'
+                stage('Configuration (Ansible)') {
+                    steps {
+                        dir('ansible') {
+                            echo "Fetching kubeconfig and installing monitoring..."
+                            // Ensures the kubernetes core collection is available
+                            sh 'ansible-galaxy collection install kubernetes.core'
+                            sh 'ansible-playbook monitoring.yml'
+                        }
+                    }
                 }
-            }
-        }
-
-        stage('Kubernetes Deployment') {
-            // Task 1: Deploy to K8s StatefulSet
-            steps {
-                echo "Deploying Engine to Kubernetes..."
-                dir('k8s') {
-                    // This command connects to your newly created EKS cluster to update your kubeconfig
-                    sh "aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name your-eks-cluster-name"
-                    
-                    // This dynamically updates the image version in your YAML file to the one just built
-                    sh "sed -i 's|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${APP_VERSION}|g' statefulset.yaml"
-                    
-                    // Apply all manifests (StatefulSet, Services, Persistent Volumes, Probes)
-                    sh 'kubectl apply -f .'
-                    
-                    // Wait for deployment to successfully roll out
-                    sh 'kubectl rollout status statefulset/seyoawe-engine'
+                
+                stage('Deploy App (Kubernetes)') {
+                    steps {
+                        dir('k8s') {
+                            sh "sed -i 's|your_dockerhub_username/seyoawe-engine:.*|${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}|g' statefulset.yaml"
+                            sh 'kubectl apply -f .'
+                        }
+                    }
                 }
             }
         }
     }
 
-    // Post-run cleanup and notifications
     post {
         always {
-            echo "Pipeline run complete. Cleaning up workspace..."
             cleanWs()
-            sh "docker logout || true"
-        }
-        success {
-            echo "🎉 CI/CD Pipeline completed successfully! Version v${APP_VERSION} is deployed."
-        }
-        failure {
-            echo "❌ CI/CD Pipeline failed. Please check the Jenkins logs."
         }
     }
 }
