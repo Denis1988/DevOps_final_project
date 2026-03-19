@@ -15,7 +15,7 @@ pipeline {
             steps {
                 script {
                     // Use ../ to go back to the project root
-                    env.APP_VERSION = readFile('../VERSION').trim()
+                    env.APP_VERSION = readFile("${WORKSPACE}/VERSION").trim()
                     echo "Starting build for Global Version: ${env.APP_VERSION}"
                 }
             }
