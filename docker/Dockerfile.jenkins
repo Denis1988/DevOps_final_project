@@ -1,0 +1,24 @@
+FROM jenkins/jenkins:latest
+
+USER root
+
+# 1. Install Docker CLI and other tools
+RUN apt-get update && \
+    apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    docker.io && \
+    rm -rf /var/lib/apt/lists/*
+
+# 2. Add 'jenkins' user to the docker group so it can run docker commands
+# Note: On some systems, the GID of the docker group must match the host's.
+RUN usermod -aG docker jenkins
+
+# 3. Setup your directory
+RUN mkdir -p /opt/jenkins && chown jenkins:jenkins /opt/jenkins
+WORKDIR /opt/jenkins
+COPY . .
+
+# Switch back to the jenkins user
+USER jenkins
