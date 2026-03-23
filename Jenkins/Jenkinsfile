@@ -5,7 +5,7 @@ pipeline {
         // Only non-secret configuration variables remain here
         APP_NAME    = 'seyoawe-engine'
         APP_VERSION = '' // Calculated dynamically
-        EC2_IP      = '' // Populated dynamically by Terraform
+        EC2_IP      = '' // We keep this here just in case, but rely on the file below
     }
 
     stages {
@@ -108,30 +108,24 @@ pipeline {
                                 string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
                                 string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
                             ]) {
-                                script {
-                                    // 1. Download and Apply
-                                    sh '''
-                                        echo "Downloading Terraform..."
-                                        curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
-                                        python3 -c "import zipfile; zipfile.ZipFile('terraform.zip').extractall('.')"
-                                        chmod +x terraform
-                                        export PATH=$PATH:$(pwd)
-                                        
-                                        echo "Initializing Terraform..."
-                                        terraform init
-                                        
-                                        echo "Applying Terraform..."
-                                        terraform apply -auto-approve -parallelism=1
-                                    '''
+                                // Download, Apply, and Save IP to a file
+                                sh '''
+                                    echo "Downloading Terraform..."
+                                    curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
+                                    python3 -c "import zipfile; zipfile.ZipFile('terraform.zip').extractall('.')"
+                                    chmod +x terraform
+                                    export PATH=$PATH:$(pwd)
                                     
-                                    // 2. Capture the IP directly from terraform output into a global environment variable
-                                    env.EC2_IP = sh(
-                                        script: 'export PATH=$PATH:$(pwd) && ./terraform output -raw public_ip', 
-                                        returnStdout: true
-                                    ).trim()
+                                    echo "Initializing Terraform..."
+                                    terraform init
                                     
-                                    echo "✅ New AWS EC2 VM created at IP: ${env.EC2_IP}"
-                                }
+                                    echo "Applying Terraform..."
+                                    terraform apply -auto-approve -parallelism=1
+                                    
+                                    echo "Extracting IP address..."
+                                    terraform output -raw public_ip > ../ec2_ip.txt
+                                    echo "✅ IP Saved to file: $(cat ../ec2_ip.txt)"
+                                '''
                             }
                         }
                     }
@@ -143,20 +137,26 @@ pipeline {
                             // Wait for the EC2 instance to fully boot up
                             sleep time: 45, unit: 'SECONDS'
                             
-                            sh """
-                                echo "Installing Ansible..."
-                                python3 -m venv venv
-                                . venv/bin/activate
-                                pip install --upgrade pip
-                                pip install ansible
+                            script {
+                                // 1. Read the IP from the file we just created
+                                def TARGET_IP = readFile('../ec2_ip.txt').trim()
                                 
-                                echo "Running Ansible Playbook on IP: ${env.EC2_IP}"
-                                ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
-                                -i '${env.EC2_IP},' \\
-                                -u ubuntu \\
-                                --private-key ../terraform/k8s-key.pem \\
-                                setup_k3s.yml
-                            """
+                                // 2. Run the shell block using the local variable
+                                sh """
+                                    echo "Installing Ansible..."
+                                    python3 -m venv venv
+                                    . venv/bin/activate
+                                    pip install --upgrade pip
+                                    pip install ansible
+                                    
+                                    echo "Running Ansible Playbook on IP: ${TARGET_IP}"
+                                    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
+                                    -i '${TARGET_IP},' \\
+                                    -u ubuntu \\
+                                    --private-key ../terraform/k8s-key.pem \\
+                                    setup_k3s.yml
+                                """
+                            }
                         }
                     }
                 }
