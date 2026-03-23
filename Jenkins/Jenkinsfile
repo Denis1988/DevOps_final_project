@@ -98,7 +98,10 @@ pipeline {
             }
         }
 
-                        stage('Provision Free Tier VM (Terraform)') {
+        // --- CD: AWS FREE TIER DEPLOYMENT ---
+        stage('Continuous Deployment (Free Tier AWS)') {
+            stages {
+                stage('Provision Free Tier VM (Terraform)') {
                     steps {
                         dir('terraform') {
                             withCredentials([
