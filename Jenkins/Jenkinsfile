@@ -101,6 +101,9 @@ pipeline {
         // --- CD: AWS FREE TIER DEPLOYMENT ---
         stage('Continuous Deployment (Free Tier AWS)') {
             stages {
+                        // --- CD: AWS FREE TIER DEPLOYMENT ---
+        stage('Continuous Deployment (Free Tier AWS)') {
+            stages {
                 stage('Provision Free Tier VM (Terraform)') {
                     steps {
                         dir('terraform') {
@@ -109,7 +112,7 @@ pipeline {
                                 string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
                             ]) {
                                 script {
-                                    // 1. Download and Apply in one shell block, and write the IP to a file
+                                    // 1. Download and Apply
                                     sh '''
                                         echo "Downloading Terraform..."
                                         curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
@@ -122,13 +125,14 @@ pipeline {
                                         
                                         echo "Applying Terraform..."
                                         terraform apply -auto-approve -parallelism=1
-                                        
-                                        # Save the IP directly to a temporary text file
-                                        terraform output -raw public_ip > ec2_ip.txt
                                     '''
                                     
-                                    // 2. Read the file natively in Groovy
-                                    env.EC2_IP = readFile('ec2_ip.txt').trim()
+                                    // 2. Capture the IP directly from terraform output into a global environment variable
+                                    env.EC2_IP = sh(
+                                        script: 'export PATH=$PATH:$(pwd) && ./terraform output -raw public_ip', 
+                                        returnStdout: true
+                                    ).trim()
+                                    
                                     echo "✅ New AWS EC2 VM created at IP: ${env.EC2_IP}"
                                 }
                             }
@@ -139,19 +143,17 @@ pipeline {
                 stage('Install K3s & Deploy App (Ansible)') {
                     steps {
                         dir('ansible') {
-                            // Wait for the EC2 instance to fully boot up and start its SSH service
+                            // Wait for the EC2 instance to fully boot up
                             sleep time: 45, unit: 'SECONDS'
                             
                             sh """
-                                # 1. Create a virtual environment and install Ansible
                                 echo "Installing Ansible..."
                                 python3 -m venv venv
                                 . venv/bin/activate
                                 pip install --upgrade pip
                                 pip install ansible
                                 
-                                # 2. Run the playbook using the newly installed Ansible
-                                echo "Running Ansible Playbook..."
+                                echo "Running Ansible Playbook on IP: ${env.EC2_IP}"
                                 ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
                                 -i '${env.EC2_IP},' \\
                                 -u ubuntu \\
