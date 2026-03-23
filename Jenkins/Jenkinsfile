@@ -158,13 +158,14 @@ pipeline {
         }
         failure {
             echo "❌ PIPELINE FAILED: Automatically creating a Bug in Jira..."
-            withCredentials([string(credentialsId: 'jira-api-token', variable: 'JIRA_TOKEN')]) {
+            // Retrieves the raw email:token string securely from Jenkins
+            withCredentials([string(credentialsId: 'jira-api-token', variable: 'JIRA_AUTH')]) {
                 sh '''
-                curl -X POST -H "Authorization: Basic ${JIRA_TOKEN}" \
+                curl -X POST -u "${JIRA_AUTH}" \
                      -H "Content-Type: application/json" \
                      --data '{
                         "fields": {
-                           "project": {"key": "FEEYIAFE-2"},
+                           "project": {"key": "SCRUM"},
                            "summary": "Jenkins Build Failed: '"${JOB_NAME}"' #'"${BUILD_NUMBER}"'",
                            "description": "Pipeline failed. Review the logs here: '"${BUILD_URL}"'",
                            "issuetype": {"name": "Bug"}
