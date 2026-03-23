@@ -121,8 +121,7 @@ pipeline {
                                     terraform init
                                     
                                     echo "Applying Terraform..."
-                                    terraform apply -auto-approve
-                                '''
+                                    terraform apply -auto-approve -parallelism=1                                '''
                                 script {
                                     env.EC2_IP = sh(script: 'terraform output -raw public_ip', returnStdout: true).trim()
                                     echo "✅ New AWS EC2 VM created at IP: ${env.EC2_IP}"
