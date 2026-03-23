@@ -101,7 +101,6 @@ pipeline {
 
                 // --- CD: ORACLE FREE TIER DEPLOYMENT ---
         stage('Continuous Deployment (Free Tier OCI)') {
-            when { branch 'main' }
             stages {
                 stage('Provision Free Tier VM (Terraform)') {
                     steps {
