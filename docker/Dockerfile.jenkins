@@ -2,7 +2,7 @@ FROM jenkins/jenkins:latest
 
 USER root
 
-# 1. Install Docker CLI and other tools
+# Install Docker CLI and other tools
 RUN apt-get update && \
     apt-get install -y \
     python3 \
@@ -11,14 +11,23 @@ RUN apt-get update && \
     docker.io && \
     rm -rf /var/lib/apt/lists/*
 
-# 2. Add 'jenkins' user to the docker group so it can run docker commands
+# Add 'jenkins' user to the docker group so it can run docker commands
 # Note: On some systems, the GID of the docker group must match the host's.
 RUN usermod -aG docker jenkins
 
-# 3. Setup your directory
+# Setup your directory
 RUN mkdir -p /opt/jenkins && chown jenkins:jenkins /opt/jenkins
 WORKDIR /opt/jenkins
 COPY . .
 
 # Switch back to the jenkins user
+USER jenkins
+
+# Terraform installation
+USER root
+RUN apt-get update && apt-get install -y wget unzip
+RUN wget https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip \
+    && unzip terraform_1.7.5_linux_amd64.zip \
+    && mv terraform /usr/local/bin/ \
+    && rm terraform_1.7.5_linux_amd64.zip
 USER jenkins
