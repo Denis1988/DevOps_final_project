@@ -99,7 +99,7 @@ pipeline {
         }
 
         // --- CD: AWS FREE TIER DEPLOYMENT ---
-        stage('Continuous Deployment (Free Tier AWS)') {
+        stage('Continuous Deployment') {
             stages {
                 stage('Provision Free Tier VM (Terraform)') {
                     steps {
@@ -131,7 +131,7 @@ pipeline {
                     }
                 }
 
-                stage('Install K3s & Deploy App (Ansible)') {
+                stage('Install Ansible & Deploy App') {
                     steps {
                         dir('ansible') {
                             // Wait for the EC2 instance to fully boot up
@@ -154,7 +154,7 @@ pipeline {
                                     -i '${TARGET_IP},' \\
                                     -u ubuntu \\
                                     --private-key ../terraform/k8s-key.pem \\
-                                    setup_k3s.yml
+                                    ansible.yml
                                 """
                             }
                         }
