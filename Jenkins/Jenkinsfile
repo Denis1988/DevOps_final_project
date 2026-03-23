@@ -136,7 +136,7 @@ pipeline {
                     }
                 }
 
-                                stage('Install K3s & Deploy App (Ansible)') {
+                stage('Install K3s & Deploy App (Ansible)') {
                     steps {
                         dir('ansible') {
                             // Wait for the EC2 instance to fully boot up and start its SSH service
@@ -160,7 +160,6 @@ pipeline {
                             """
                         }
                     }
-                }
                 }
             }
         }
