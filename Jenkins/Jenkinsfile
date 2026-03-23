@@ -165,13 +165,13 @@ pipeline {
                      -H "Content-Type: application/json" \
                      --data '{
                         "fields": {
-                           "project": {"key": "PROJ"},
+                           "project": {"key": "DevOps project"},
                            "summary": "Jenkins Build Failed: '"${JOB_NAME}"' #'"${BUILD_NUMBER}"'",
                            "description": "Pipeline failed. Review the logs here: '"${BUILD_URL}"'",
                            "issuetype": {"name": "Bug"}
                         }
                      }' \
-                     https://your-domain.atlassian.net/rest/api/2/issue
+                     https://denis1988.atlassian.net?continue=https%3A%2F%2Fdenis1988.atlassian.net%2Fwelcome%2Fsoftware&atlOrigin=eyJpIjoiNWYyOGNmN2E3MTFjNDAyOWFiYjQwZDllNTVkMjk5MjAiLCJwIjoiaiJ9
                 '''
             }
         }
