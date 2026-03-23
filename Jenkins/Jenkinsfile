@@ -156,7 +156,7 @@ pipeline {
         success {
             echo "✅ PIPELINE SUCCESS: Tests passed, images built, and successfully deployed to K3s!"
         }
-        failure {
+                failure {
             echo "❌ PIPELINE FAILED: Automatically creating a Bug in Jira..."
             // Retrieves Jira API Token securely
             withCredentials([string(credentialsId: 'jira-api-token', variable: 'JIRA_TOKEN')]) {
@@ -165,13 +165,13 @@ pipeline {
                      -H "Content-Type: application/json" \
                      --data '{
                         "fields": {
-                           "project": {"key": "DevOps project"},
+                           "project": {"key": "FEEYIAFE"},
                            "summary": "Jenkins Build Failed: '"${JOB_NAME}"' #'"${BUILD_NUMBER}"'",
                            "description": "Pipeline failed. Review the logs here: '"${BUILD_URL}"'",
                            "issuetype": {"name": "Bug"}
                         }
                      }' \
-                     https://denis1988.atlassian.net?continue=https%3A%2F%2Fdenis1988.atlassian.net%2Fwelcome%2Fsoftware&atlOrigin=eyJpIjoiNWYyOGNmN2E3MTFjNDAyOWFiYjQwZDllNTVkMjk5MjAiLCJwIjoiaiJ9
+                     https://denis1988.atlassian.net/rest/api/2/issue
                 '''
             }
         }
