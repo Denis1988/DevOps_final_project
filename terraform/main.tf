@@ -7,7 +7,6 @@ terraform {
     tls   = { source = "hashicorp/tls", version = "~> 4.0" }
     local = { source = "hashicorp/local", version = "~> 2.0" }
   }
-  # Note: Consider adding an S3 or OCI backend here for Jenkins state persistence
 }
 
 # --- Variables ---
@@ -77,21 +76,30 @@ resource "oci_core_default_security_list" "default_sl" {
   ingress_security_rules {
     protocol = "6"
     source   = "0.0.0.0/0"
-    tcp_options { min = 22, max = 22 }
+    tcp_options { 
+      min = 22
+      max = 22 
+    }
   }
 
   # HTTP
   ingress_security_rules {
     protocol = "6"
     source   = "0.0.0.0/0"
-    tcp_options { min = 80, max = 80 }
+    tcp_options { 
+      min = 80
+      max = 80 
+    }
   }
 
   # K8s API
   ingress_security_rules {
     protocol = "6"
     source   = "0.0.0.0/0"
-    tcp_options { min = 6443, max = 6443 }
+    tcp_options { 
+      min = 6443
+      max = 6443 
+    }
   }
 }
 

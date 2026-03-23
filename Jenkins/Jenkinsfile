@@ -12,7 +12,6 @@ pipeline {
         stage('Initialize & Calculate Version') {
             steps {
                 script {
-                    //error "Intentional failure to test Jira ticket creation."
                     sh "ls -R ${WORKSPACE}"
                     if (fileExists("VERSION")) {
                         env.APP_VERSION = readFile("VERSION").trim()
@@ -99,10 +98,10 @@ pipeline {
             }
         }
 
-                // --- CD: ORACLE FREE TIER DEPLOYMENT ---
+        // --- CD: ORACLE FREE TIER DEPLOYMENT ---
         stage('Continuous Deployment (Free Tier OCI)') {
             stages {
-                                stage('Provision Free Tier VM (Terraform)') {
+                stage('Provision Free Tier VM (Terraform)') {
                     steps {
                         dir('terraform') {
                             withCredentials([
@@ -112,12 +111,12 @@ pipeline {
                                 string(credentialsId: 'oci-compartment-ocid', variable: 'TF_VAR_compartment_ocid'),
                                 string(credentialsId: 'oci-fingerprint', variable: 'TF_VAR_fingerprint')
                             ]) {
-                                    sh '''
+                                sh '''
                                     # 1. Download Terraform using curl (since wget/unzip are missing)
                                     echo "Downloading Terraform..."
                                     curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
                                     
-                                    # Use Python's built-in zipfile extractor since the 'unzip' command is missing
+                                    # Use Python's built-in zipfile extractor
                                     echo "Extracting Terraform..."
                                     python3 -c "import zipfile; zipfile.ZipFile('terraform.zip').extractall('.')"
                                     
@@ -135,7 +134,10 @@ pipeline {
                                     terraform init
                                     
                                     echo "Applying Terraform..."
-                                    terraform apply -auto-approve \
+                                    # Added TF_LOG=DEBUG so we can see why it hangs in the Jenkins console [cite:344]
+                                    export TF_LOG=DEBUG
+                                    # Added -parallelism=1 to prevent Jenkins Docker Out-Of-Memory freezes [cite:344]
+                                    terraform apply -auto-approve -parallelism=1 \
                                         -var="private_key_path=./oci_api_key.pem" \
                                         -var="region=eu-frankfurt-1"
                                 '''
@@ -148,13 +150,9 @@ pipeline {
                     }
                 }
                 
-                // The rest of the Ansible and K8s stages remain EXACTLY the same!
-                // Ansible doesn't care if the server is AWS or Oracle, as long as it's Ubuntu.
-                
                 stage('Update K8s Manifests Locally') {
                     steps {
                         dir('k8s') {
-                            // Retrieves Docker username to correctly update the manifest file
                             withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                                 sh "sed -i 's|your_dockerhub_username/seyoawe-engine:.*|${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}|g' statefulset.yaml"
                             }
@@ -188,9 +186,8 @@ pipeline {
         success {
             echo "✅ PIPELINE SUCCESS: Tests passed, images built, and successfully deployed to K3s!"
         }
-                failure {
+        failure {
             echo "❌ PIPELINE FAILED: Automatically creating a Bug in Jira..."
-            // Safely binds the username and password together with a colon for curl
             withCredentials([usernameColonPassword(credentialsId: 'jira-api-token', variable: 'JIRA_AUTH')]) {
                 sh '''
                 curl -s -X POST -u "$JIRA_AUTH" \
