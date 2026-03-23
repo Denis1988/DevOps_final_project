@@ -98,52 +98,31 @@ pipeline {
             }
         }
 
-        // --- CD: ORACLE FREE TIER DEPLOYMENT ---
-        stage('Continuous Deployment (Free Tier OCI)') {
-            stages {
-                stage('Provision Free Tier VM (Terraform)') {
+                        stage('Provision Free Tier VM (Terraform)') {
                     steps {
                         dir('terraform') {
                             withCredentials([
-                                file(credentialsId: 'oci-api-key', variable: 'OCI_KEY_FILE'),
-                                string(credentialsId: 'oci-tenancy-ocid', variable: 'TF_VAR_tenancy_ocid'),
-                                string(credentialsId: 'oci-user-ocid', variable: 'TF_VAR_user_ocid'),
-                                string(credentialsId: 'oci-compartment-ocid', variable: 'TF_VAR_compartment_ocid'),
-                                string(credentialsId: 'oci-fingerprint', variable: 'TF_VAR_fingerprint')
+                                string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                                string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
                             ]) {
                                 sh '''
-                                    # 1. Download Terraform using curl (since wget/unzip are missing)
+                                    # 1. Download Terraform
                                     echo "Downloading Terraform..."
                                     curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
-                                    
-                                    # Use Python's built-in zipfile extractor
-                                    echo "Extracting Terraform..."
                                     python3 -c "import zipfile; zipfile.ZipFile('terraform.zip').extractall('.')"
-                                    
-                                    # Make it executable and add to PATH
                                     chmod +x terraform
                                     export PATH=$PATH:$(pwd)
-                                    terraform version
                                     
-                                    # 2. Setup Oracle Credentials
-                                    echo "Setting up OCI keys..."
-                                    cp $OCI_KEY_FILE ./oci_api_key.pem
-                                    
-                                    # 3. Run Terraform
+                                    # 2. Run Terraform (AWS Provider automatically reads AWS_ variables)
                                     echo "Initializing Terraform..."
                                     terraform init
                                     
                                     echo "Applying Terraform..."
-                                    # Added TF_LOG=DEBUG so we can see why it hangs in the Jenkins console [cite:344]
-                                    export TF_LOG=DEBUG
-                                    # Added -parallelism=1 to prevent Jenkins Docker Out-Of-Memory freezes [cite:344]
-                                    terraform apply -auto-approve -parallelism=1 \
-                                        -var="private_key_path=./oci_api_key.pem" \
-                                        -var="region=eu-frankfurt-1"
+                                    terraform apply -auto-approve
                                 '''
                                 script {
                                     env.EC2_IP = sh(script: 'terraform output -raw public_ip', returnStdout: true).trim()
-                                    echo "✅ New Oracle VM created at IP: ${env.EC2_IP}"
+                                    echo "✅ New AWS EC2 VM created at IP: ${env.EC2_IP}"
                                 }
                             }
                         }
