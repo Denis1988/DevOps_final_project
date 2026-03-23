@@ -136,13 +136,22 @@ pipeline {
                     }
                 }
 
-                stage('Install K3s & Deploy App (Ansible)') {
+                                stage('Install K3s & Deploy App (Ansible)') {
                     steps {
                         dir('ansible') {
                             // Wait for the EC2 instance to fully boot up and start its SSH service
                             sleep time: 45, unit: 'SECONDS'
                             
                             sh """
+                                # 1. Create a virtual environment and install Ansible
+                                echo "Installing Ansible..."
+                                python3 -m venv venv
+                                . venv/bin/activate
+                                pip install --upgrade pip
+                                pip install ansible
+                                
+                                # 2. Run the playbook using the newly installed Ansible
+                                echo "Running Ansible Playbook..."
                                 ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
                                 -i '${env.EC2_IP},' \\
                                 -u ubuntu \\
@@ -151,6 +160,7 @@ pipeline {
                             """
                         }
                     }
+                }
                 }
             }
         }
