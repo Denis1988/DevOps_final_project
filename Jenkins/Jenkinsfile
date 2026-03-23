@@ -2,29 +2,23 @@ pipeline {
     agent any
 
     environment {
-        // Global variables and credentials
-        DOCKER_HUB_CREDS = 'dockerhub-creds'
-        AWS_CREDS_ID     = 'aws-credentials' 
-        DOCKER_USER      = 'your_dockerhub_username'
-        APP_NAME         = 'seyoawe-engine'
-        APP_VERSION      = '' // Calculated dynamically
-        EC2_IP           = '' // Will be populated by Terraform [cite:96][cite:101]
+        // Only non-secret configuration variables remain here
+        APP_NAME    = 'seyoawe-engine'
+        APP_VERSION = '' // Calculated dynamically
+        EC2_IP      = '' // Populated dynamically by Terraform
     }
 
     stages {
         stage('Initialize & Calculate Version') {
             steps {
                 script {
-                    // 1. List files so you can see the truth in the logs
+                    error "Intentional failure to test Jira ticket creation."
                     sh "ls -R ${WORKSPACE}"
-                    
-                    // 2. Try to find the file in multiple common locations
                     if (fileExists("VERSION")) {
                         env.APP_VERSION = readFile("VERSION").trim()
                     } else if (fileExists("Jenkins/VERSION")) {
                         env.APP_VERSION = readFile("Jenkins/VERSION").trim()
                     } else {
-                        // 3. If it's missing, don't crash; set a default so the build continues
                         echo "WARNING: VERSION file not found. Using default 1.0.0"
                         env.APP_VERSION = "1.0.0"
                     }
@@ -37,9 +31,7 @@ pipeline {
         stage('Parallel CI Build & Test') {
             parallel {
                 
-                // ==========================================
-                // ENGINE PIPELINE (Runs parallel to CLI)
-                // ==========================================
+                // --- ENGINE PIPELINE ---
                 stage('Engine CI') {
                     when { changeset "engine/**" }
                     stages {
@@ -50,44 +42,33 @@ pipeline {
                                     sh '''
                                         python3 -m venv venv
                                         . venv/bin/activate
-                                        pip install -r requirements.txt
-                                        pip install pytest pytest-cov
-                                        # Run tests and output results to XML for Jenkins
+                                        pip install -r requirements.txt pytest pytest-cov
                                         pytest --junitxml=engine-test-results.xml
                                     '''
                                 }
                             }
-                            post {
-                                always {
-                                    // Publish test results to Jenkins UI even if tests fail
-                                    junit 'engine/engine-test-results.xml'
-                                }
-                            }
+                            post { always { junit 'engine/engine-test-results.xml' } }
                         }
-                        stage('Build Engine Image') {
+                        stage('Build & Push Engine Image') {
                             steps {
                                 dir('engine') {
-                                    echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
-                                    sh "docker build -t ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ."
-                                }
-                            }
-                        }
-                        stage('Push Engine Image') {
-                            steps {
-                                withCredentials([usernamePassword(credentialsId: env.DOCKER_HUB_CREDS, usernameVariable: 'DOCKER_USER_ID', passwordVariable: 'DOCKER_USER_PASS')]) {
-                                    sh "echo \$DOCKER_USER_PASS | docker login -u \$DOCKER_USER_ID --password-stdin"
-                                    sh "docker push ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
-                                    sh "docker tag ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ${DOCKER_USER}/${APP_NAME}:latest"
-                                    sh "docker push ${DOCKER_USER}/${APP_NAME}:latest"
+                                    // Retrieves Docker Hub credentials securely
+                                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                                        echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
+                                        sh "docker build -t ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ."
+                                        
+                                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                                        sh "docker push ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
+                                        sh "docker tag ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ${DOCKER_USER}/${APP_NAME}:latest"
+                                        sh "docker push ${DOCKER_USER}/${APP_NAME}:latest"
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // ==========================================
-                // CLI PIPELINE (Runs parallel to Engine)
-                // ==========================================
+                // --- CLI PIPELINE ---
                 stage('CLI CI') {
                     when { changeset "cli/**" }
                     stages {
@@ -98,34 +79,18 @@ pipeline {
                                     sh '''
                                         python3 -m venv venv
                                         . venv/bin/activate
-                                        pip install -r requirements.txt
-                                        pip install pytest pytest-cov
-                                        # Run tests and output results to XML for Jenkins
+                                        pip install -r requirements.txt pytest pytest-cov
                                         pytest --junitxml=cli-test-results.xml
                                     '''
                                 }
                             }
-                            post {
-                                always {
-                                    // Publish test results to Jenkins UI even if tests fail
-                                    junit 'cli/cli-test-results.xml'
-                                }
-                            }
+                            post { always { junit 'cli/cli-test-results.xml' } }
                         }
-                        stage('Package CLI Artifact') {
+                        stage('Package & Publish CLI') {
                             steps {
                                 dir('cli') {
-                                    echo "Packaging CLI tool version ${env.APP_VERSION}"
-                                    sh '''
-                                        . venv/bin/activate
-                                        python setup.py sdist bdist_wheel
-                                    '''
+                                    sh '. venv/bin/activate && python setup.py sdist bdist_wheel'
                                 }
-                            }
-                        }
-                        stage('Publish CLI Artifact') {
-                            steps {
-                                echo "Publishing CLI artifact to Jenkins..."
                                 archiveArtifacts artifacts: 'cli/dist/*', allowEmptyArchive: true
                             }
                         }
@@ -134,20 +99,20 @@ pipeline {
             }
         }
 
-        // --- CD: FREE TIER DEPLOYMENT (Replaced EKS logic) ---
+        // --- CD: FREE TIER DEPLOYMENT ---
         stage('Continuous Deployment (Free Tier)') {
             when { branch 'main' }
             stages {
                 stage('Provision Free Tier EC2 (Terraform)') {
                     steps {
                         dir('terraform') {
-                            withCredentials([aws(credentialsId: env.AWS_CREDS_ID)]) {
+                            // Retrieves AWS credentials securely
+                            withCredentials([aws(credentialsId: 'aws-credentials')]) {
                                 sh 'terraform init'
                                 sh 'terraform apply -auto-approve'
-                                // Retrieve the public IP of the newly created instance and assign it to Jenkins variable
                                 script {
                                     env.EC2_IP = sh(script: 'terraform output -raw public_ip', returnStdout: true).trim()
-                                    echo "✅ New EC2 Server created successfully at IP: ${env.EC2_IP}"
+                                    echo "✅ New EC2 Server created at IP: ${env.EC2_IP}"
                                 }
                             }
                         }
@@ -157,9 +122,10 @@ pipeline {
                 stage('Update K8s Manifests Locally') {
                     steps {
                         dir('k8s') {
-                            echo "Injecting version ${env.APP_VERSION} into statefulset..."
-                            // Update the image tag in the workspace BEFORE Ansible copies it to the server
-                            sh "sed -i 's|your_dockerhub_username/seyoawe-engine:.*|${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}|g' statefulset.yaml"
+                            // Retrieves Docker username to correctly update the manifest file
+                            withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                                sh "sed -i 's|your_dockerhub_username/seyoawe-engine:.*|${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}|g' statefulset.yaml"
+                            }
                         }
                     }
                 }
@@ -167,10 +133,7 @@ pipeline {
                 stage('Install K3s & Deploy App (Ansible)') {
                     steps {
                         dir('ansible') {
-                            // Wait a short time for the new Ubuntu server SSH daemon to fully boot up
                             sleep time: 30, unit: 'SECONDS'
-                            
-                            // Execute Ansible against the newly created EC2 instance over SSH
                             sh """
                                 ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
                                 -i '${env.EC2_IP},' \\
@@ -185,10 +148,32 @@ pipeline {
         }
     }
 
+    // --- PIPELINE STATUS HANDLING ---
     post {
         always {
-            echo "Cleaning up Jenkins workspace to save disk space..."
             cleanWs()
+        }
+        success {
+            echo "✅ PIPELINE SUCCESS: Tests passed, images built, and successfully deployed to K3s!"
+        }
+        failure {
+            echo "❌ PIPELINE FAILED: Automatically creating a Bug in Jira..."
+            // Retrieves Jira API Token securely
+            withCredentials([string(credentialsId: 'jira-api-token', variable: 'JIRA_TOKEN')]) {
+                sh '''
+                curl -X POST -H "Authorization: Basic ${JIRA_TOKEN}" \
+                     -H "Content-Type: application/json" \
+                     --data '{
+                        "fields": {
+                           "project": {"key": "PROJ"},
+                           "summary": "Jenkins Build Failed: '"${JOB_NAME}"' #'"${BUILD_NUMBER}"'",
+                           "description": "Pipeline failed. Review the logs here: '"${BUILD_URL}"'",
+                           "issuetype": {"name": "Bug"}
+                        }
+                     }' \
+                     https://your-domain.atlassian.net/rest/api/2/issue
+                '''
+            }
         }
     }
 }
