@@ -102,10 +102,9 @@ pipeline {
                 // --- CD: ORACLE FREE TIER DEPLOYMENT ---
         stage('Continuous Deployment (Free Tier OCI)') {
             stages {
-                stage('Provision Free Tier VM (Terraform)') {
+                                stage('Provision Free Tier VM (Terraform)') {
                     steps {
                         dir('terraform') {
-                            // Request all OCI secrets from Jenkins Vault simultaneously
                             withCredentials([
                                 file(credentialsId: 'oci-api-key', variable: 'OCI_KEY_FILE'),
                                 string(credentialsId: 'oci-tenancy-ocid', variable: 'TF_VAR_tenancy_ocid'),
@@ -114,20 +113,22 @@ pipeline {
                                 string(credentialsId: 'oci-fingerprint', variable: 'TF_VAR_fingerprint')
                             ]) {
                                 sh '''
-                                    # Copy the injected PEM key to a known path
+                                    # 1. Download and install Terraform temporarily in the workspace
+                                    wget https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
+                                    unzip -o terraform_1.7.5_linux_amd64.zip
+                                    export PATH=$PATH:$(pwd)
+                                    terraform version
+                                    
+                                    # 2. Setup Oracle Credentials
                                     cp $OCI_KEY_FILE ./oci_api_key.pem
                                     
-                                    # We do not need to pass the other vars manually with -var 
-                                    # because Terraform automatically reads any environment variable 
-                                    # that starts with 'TF_VAR_' 
-                                    
+                                    # 3. Run Terraform
                                     terraform init
                                     terraform apply -auto-approve \
                                         -var="private_key_path=./oci_api_key.pem" \
-                                        -var="region=eu-frankfurt-1"
+                                        -var="region=us-ashburn-1"
                                 '''
                                 script {
-                                    // Capture the output IP for Ansible
                                     env.EC2_IP = sh(script: 'terraform output -raw public_ip', returnStdout: true).trim()
                                     echo "✅ New Oracle VM created at IP: ${env.EC2_IP}"
                                 }
