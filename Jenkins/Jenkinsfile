@@ -164,7 +164,7 @@ pipeline {
                      -H "Content-Type: application/json" \
                      --data '{
                         "fields": {
-                           "project": {"key": "FEEYIAFE"},
+                           "project": {"key": "FEEYIAFE-2"},
                            "summary": "Jenkins Build Failed: '"${JOB_NAME}"' #'"${BUILD_NUMBER}"'",
                            "description": "Pipeline failed. Review the logs here: '"${BUILD_URL}"'",
                            "issuetype": {"name": "Bug"}
