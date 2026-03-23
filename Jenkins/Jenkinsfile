@@ -113,6 +113,7 @@ pipeline {
                                 string(credentialsId: 'oci-fingerprint', variable: 'TF_VAR_fingerprint')
                             ]) {
                                 sh '''
+                                    sudo apt update && sudo apt install -y wget unzip
                                     # 1. Download and install Terraform temporarily in the workspace
                                     wget https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
                                     unzip -o terraform_1.7.5_linux_amd64.zip
