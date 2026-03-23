@@ -1,76 +1,138 @@
 terraform {
   required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+    oci = {
+      source  = "oracle/oci"
+      version = "~> 5.0"
+    }
     tls = { source = "hashicorp/tls", version = "~> 4.0" }
     local = { source = "hashicorp/local", version = "~> 2.0" }
   }
 }
 
-provider "aws" { region = "us-east-1" }
+# You will pass these variables from Jenkins
+variable "tenancy_ocid" {}
+variable "user_ocid" {}
+variable "fingerprint" {}
+variable "private_key_path" {}
+variable "region" {}
+variable "compartment_ocid" {}
 
-# Generate an SSH Key Pair dynamically
+provider "oci" {
+  tenancy_ocid     = var.tenancy_ocid
+  user_ocid        = var.user_ocid
+  fingerprint      = var.fingerprint
+  private_key_path = var.private_key_path
+  region           = var.region
+}
+
+# Generate SSH Key Pair for Ansible to login
 resource "tls_private_key" "k8s_key" {
   algorithm = "RSA"
   rsa_bits  = 4096
 }
 
-resource "aws_key_pair" "generated_key" {
-  key_name   = "seyoawe-k8s-key"
-  public_key = tls_private_key.k8s_key.public_key_openssh
-}
-
-# Save the private key locally for Jenkins/Ansible to use [cite:93]
 resource "local_file" "private_key" {
   content         = tls_private_key.k8s_key.private_key_pem
   filename        = "${path.module}/k8s-key.pem"
   file_permission = "0400"
 }
 
-# Find the latest Ubuntu 22.04 AMI
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+# Get Availability Domains
+data "oci_identity_availability_domains" "ads" {
+  compartment_id = var.tenancy_ocid
+}
+
+# Create Virtual Cloud Network (VCN)
+resource "oci_core_vcn" "free_vcn" {
+  compartment_id = var.compartment_ocid
+  display_name   = "seyoawe-vcn"
+  cidr_block     = "10.0.0.0/16"
+}
+
+# Create Internet Gateway
+resource "oci_core_internet_gateway" "igw" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.free_vcn.id
+  display_name   = "seyoawe-igw"
+  enabled        = true
+}
+
+# Default Route Table
+resource "oci_core_default_route_table" "default_rt" {
+  manage_default_resource_id = oci_core_vcn.free_vcn.default_route_table_id
+  route_rules {
+    destination       = "0.0.0.0/0"
+    network_entity_id = oci_core_internet_gateway.igw.id
   }
 }
 
-# Allow SSH (22), HTTP (80) and K8s API (6443)
-resource "aws_security_group" "k8s_sg" {
-  name        = "k8s_free_tier_sg"
-  description = "Allow inbound traffic"
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+# Default Security List (Allow SSH and HTTP)
+resource "oci_core_default_security_list" "default_sl" {
+  manage_default_resource_id = oci_core_vcn.free_vcn.default_security_list_id
+  egress_security_rules {
+    destination = "0.0.0.0/0"
+    protocol    = "all"
   }
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  ingress_security_rules {
+    protocol = "6" # TCP
+    source   = "0.0.0.0/0"
+    tcp_options { max = 22 }
   }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  ingress_security_rules {
+    protocol = "6"
+    source   = "0.0.0.0/0"
+    tcp_options { max = 80 }
+  }
+  ingress_security_rules {
+    protocol = "6"
+    source   = "0.0.0.0/0"
+    tcp_options { max = 6443 } # Kubernetes API
   }
 }
 
-# Create the Free Tier EC2 Node
-resource "aws_instance" "k8s_node" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t2.micro" # Free Tier Eligible
-  key_name               = aws_key_pair.generated_key.key_name
-  vpc_security_group_ids = [aws_security_group.k8s_sg.id]
-
-  tags = { Name = "seyoawe-free-tier-k3s" }
+# Create Public Subnet
+resource "oci_core_subnet" "public_subnet" {
+  compartment_id    = var.compartment_ocid
+  vcn_id            = oci_core_vcn.free_vcn.id
+  cidr_block        = "10.0.1.0/24"
+  display_name      = "seyoawe-subnet"
+  route_table_id    = oci_core_default_route_table.default_rt.id
+  security_list_ids = [oci_core_default_security_list.default_sl.id]
 }
 
-# Output the IP so Jenkins can pass it to Ansible
+# Fetch latest Ubuntu 22.04 Image
+data "oci_core_images" "ubuntu" {
+  compartment_id           = var.compartment_ocid
+  operating_system         = "Canonical Ubuntu"
+  operating_system_version = "22.04"
+  shape                    = "VM.Standard.E2.1.Micro"
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
+}
+
+# Create the Always Free Compute Instance
+resource "oci_core_instance" "free_instance" {
+  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
+  compartment_id      = var.compartment_ocid
+  display_name        = "seyoawe-free-tier"
+  shape               = "VM.Standard.E2.1.Micro" # Always Free Tier shape [cite:240][cite:244]
+
+  create_vnic_details {
+    subnet_id        = oci_core_subnet.public_subnet.id
+    display_name     = "primaryvnic"
+    assign_public_ip = true
+  }
+
+  source_details {
+    source_type = "image"
+    source_id   = data.oci_core_images.ubuntu.images[0].id
+  }
+
+  metadata = {
+    ssh_authorized_keys = tls_private_key.k8s_key.public_key_openssh
+  }
+}
+
 output "public_ip" {
-  value = aws_instance.k8s_node.public_ip
+  value = oci_core_instance.free_instance.public_ip
 }
