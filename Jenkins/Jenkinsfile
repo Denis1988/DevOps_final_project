@@ -101,7 +101,7 @@ pipeline {
         // --- CD: AWS FREE TIER DEPLOYMENT ---
         stage('Continuous Deployment (Free Tier AWS)') {
             stages {
-                                stage('Provision Free Tier VM (Terraform)') {
+                stage('Provision Free Tier VM (Terraform)') {
                     steps {
                         dir('terraform') {
                             withCredentials([
@@ -127,20 +127,10 @@ pipeline {
                                         terraform output -raw public_ip > ec2_ip.txt
                                     '''
                                     
-                                    // 2. Read the file natively in Groovy so we don't need another sh block
+                                    // 2. Read the file natively in Groovy
                                     env.EC2_IP = readFile('ec2_ip.txt').trim()
                                     echo "✅ New AWS EC2 VM created at IP: ${env.EC2_IP}"
                                 }
-                            }
-                        }
-                    }
-                }
-                
-                stage('Update K8s Manifests Locally') {
-                    steps {
-                        dir('k8s') {
-                            withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                                sh "sed -i 's|your_dockerhub_username/seyoawe-engine:.*|${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}|g' statefulset.yaml"
                             }
                         }
                     }
@@ -149,7 +139,9 @@ pipeline {
                 stage('Install K3s & Deploy App (Ansible)') {
                     steps {
                         dir('ansible') {
-                            sleep time: 30, unit: 'SECONDS'
+                            // Wait for the EC2 instance to fully boot up and start its SSH service
+                            sleep time: 45, unit: 'SECONDS'
+                            
                             sh """
                                 ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
                                 -i '${env.EC2_IP},' \\
@@ -167,7 +159,8 @@ pipeline {
     // --- PIPELINE STATUS HANDLING ---
     post {
         always {
-            cleanWs()
+            echo "Workspace preserved for Terraform State"
+            // cleanWs() 
         }
         success {
             echo "✅ PIPELINE SUCCESS: Tests passed, images built, and successfully deployed to K3s!"
