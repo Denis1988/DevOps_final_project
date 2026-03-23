@@ -8,6 +8,7 @@ pipeline {
         DOCKER_USER      = 'your_dockerhub_username'
         APP_NAME         = 'seyoawe-engine'
         APP_VERSION      = '' // Calculated dynamically
+        EC2_IP           = '' // Will be populated by Terraform [cite:96][cite:101]
     }
 
     stages {
@@ -31,6 +32,7 @@ pipeline {
                 }
             }
         }
+
         // CI Phase - Parallel execution of Engine and CLI
         stage('Parallel CI Build & Test') {
             parallel {
@@ -132,36 +134,50 @@ pipeline {
             }
         }
 
-        // CD Phase - Sequential execution after CI finishes
-        stage('Continuous Deployment (CD)') {
+        // --- CD: FREE TIER DEPLOYMENT (Replaced EKS logic) ---
+        stage('Continuous Deployment (Free Tier)') {
             when { branch 'main' }
             stages {
-                stage('Infrastructure (Terraform)') {
+                stage('Provision Free Tier EC2 (Terraform)') {
                     steps {
                         dir('terraform') {
                             withCredentials([aws(credentialsId: env.AWS_CREDS_ID)]) {
                                 sh 'terraform init'
                                 sh 'terraform apply -auto-approve'
+                                // Retrieve the public IP of the newly created instance and assign it to Jenkins variable
+                                script {
+                                    env.EC2_IP = sh(script: 'terraform output -raw public_ip', returnStdout: true).trim()
+                                    echo "✅ New EC2 Server created successfully at IP: ${env.EC2_IP}"
+                                }
                             }
                         }
                     }
                 }
-                stage('Configuration (Ansible)') {
+                
+                stage('Update K8s Manifests Locally') {
                     steps {
-                        dir('ansible') {
-                            echo "Fetching kubeconfig and installing monitoring..."
-                            // Ensures the kubernetes core collection is available
-                            sh 'ansible-galaxy collection install kubernetes.core'
-                            sh 'ansible-playbook monitoring.yml'
+                        dir('k8s') {
+                            echo "Injecting version ${env.APP_VERSION} into statefulset..."
+                            // Update the image tag in the workspace BEFORE Ansible copies it to the server
+                            sh "sed -i 's|your_dockerhub_username/seyoawe-engine:.*|${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}|g' statefulset.yaml"
                         }
                     }
                 }
-                
-                stage('Deploy App (Kubernetes)') {
+
+                stage('Install K3s & Deploy App (Ansible)') {
                     steps {
-                        dir('k8s') {
-                            sh "sed -i 's|your_dockerhub_username/seyoawe-engine:.*|${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}|g' statefulset.yaml"
-                            sh 'kubectl apply -f .'
+                        dir('ansible') {
+                            // Wait a short time for the new Ubuntu server SSH daemon to fully boot up
+                            sleep time: 30, unit: 'SECONDS'
+                            
+                            // Execute Ansible against the newly created EC2 instance over SSH
+                            sh """
+                                ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
+                                -i '${env.EC2_IP},' \\
+                                -u ubuntu \\
+                                --private-key ../terraform/k8s-key.pem \\
+                                setup_k3s.yml
+                            """
                         }
                     }
                 }
@@ -171,6 +187,7 @@ pipeline {
 
     post {
         always {
+            echo "Cleaning up Jenkins workspace to save disk space..."
             cleanWs()
         }
     }

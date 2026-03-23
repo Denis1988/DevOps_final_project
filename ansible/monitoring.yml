@@ -1,32 +1,34 @@
 ---
-- name: Configure EKS Cluster and Install Monitoring
-  hosts: localhost
-  connection: local
+- name: Setup K3s and Deploy Application
+  hosts: all
+  become: true # Run as root
   tasks:
-    - name: Fetch EKS kubeconfig to allow kubectl access
-      ansible.builtin.command: >
-        aws eks update-kubeconfig
-        --name seyoawe-cluster
-        --region us-east-1
-      changed_when: true
+    - name: Install K3s (Lightweight Kubernetes)
+      shell: curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /usr/local/bin/k3s
 
-    - name: Add Prometheus community Helm repository
-      kubernetes.core.helm_repository:
-        name: prometheus-community
-        repo_url: https://prometheus-community.github.io/helm-charts
+    - name: Ensure .kube directory exists for ubuntu user
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        mode: '0755'
 
-    - name: Install Prometheus and Grafana stack via Helm
-      kubernetes.core.helm:
-        name: monitoring-stack
-        chart_ref: prometheus-community/kube-prometheus-stack
-        release_namespace: monitoring
-        create_namespace: true
-        wait: true
-        values:
-          grafana:
-            adminPassword: "admin" # The password to log into Grafana
-            service:
-              type: LoadBalancer # Exposes Grafana to the public internet
-          prometheus:
-            prometheusSpec:
-              retention: "2d" # Keep metrics for 2 days to save disk space
+    - name: Copy K3s kubeconfig to ubuntu user
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /home/ubuntu/.kube/config
+        remote_src: yes
+        owner: ubuntu
+        mode: '0600'
+
+    - name: Copy updated Kubernetes manifests from Jenkins to EC2
+      copy:
+        src: ../k8s/
+        dest: /home/ubuntu/k8s/
+        owner: ubuntu
+
+    - name: Deploy the Application to K3s
+      become_user: ubuntu
+      command: kubectl apply -f /home/ubuntu/k8s/
