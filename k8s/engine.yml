@@ -1,0 +1,42 @@
+---
+# 1. DEPLOYMENT: This tells K3s to run your Docker container
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seyoawe-engine-deployment
+  labels:
+    app: seyoawe-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seyoawe-engine
+  template:
+    metadata:
+      labels:
+        app: seyoawe-engine
+    spec:
+      containers:
+      - name: seyoawe-engine
+        # IMPORTANT: Replace 'Denis1988' with your actual Docker Hub username!
+        image: denis1988/seyoawe-engine:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000 # Change this to 5000 or 80 if your Python app uses a different port!
+
+
+---
+# 2. SERVICE: This exposes your app to the internet
+apiVersion: v1
+kind: Service
+metadata:
+  name: seyoawe-engine-service
+spec:
+  type: NodePort
+  selector:
+    app: seyoawe-engine
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000 # This MUST match the containerPort above!
+      nodePort: 30080  # This is the port you will type in your web browser

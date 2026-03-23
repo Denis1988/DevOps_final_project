@@ -52,7 +52,7 @@
 
     - name: Copy Kubernetes manifests
       copy:
-        src: ../k8s/ # Ensure this path is relative to where you run ansible-playbook
+        src: ../k8s/
         dest: "/home/{{ ansible_user }}/k8s/"
         owner: "{{ ansible_user }}"
 
@@ -61,3 +61,23 @@
       shell: |
         export KUBECONFIG=/home/{{ ansible_user }}/.kube/config
         /usr/local/bin/kubectl apply -f /home/{{ ansible_user }}/k8s/
+    
+    - name: Install Helm
+      shell: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+    - name: Add Prometheus Community Helm Repo
+      become_user: "{{ ansible_user }}"
+      shell: |
+        export KUBECONFIG=/home/{{ ansible_user }}/.kube/config
+        /usr/local/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        /usr/local/bin/helm repo update
+
+    - name: Deploy Monitoring (Prometheus & Grafana) via Helm
+      become_user: "{{ ansible_user }}"
+      shell: |
+        export KUBECONFIG=/home/{{ ansible_user }}/.kube/config
+        /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+        --namespace monitoring --create-namespace \
+        --set prometheus.prometheusSpec.scrapeInterval="30s"
