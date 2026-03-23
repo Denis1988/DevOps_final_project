@@ -137,7 +137,7 @@ pipeline {
                                     echo "Applying Terraform..."
                                     terraform apply -auto-approve \
                                         -var="private_key_path=./oci_api_key.pem" \
-                                        -var="region=us-ashburn-1"
+                                        -var="region=eu-frankfurt-1"
                                 '''
                                 script {
                                     env.EC2_IP = sh(script: 'terraform output -raw public_ip', returnStdout: true).trim()
