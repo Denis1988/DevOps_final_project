@@ -101,29 +101,34 @@ pipeline {
         // --- CD: AWS FREE TIER DEPLOYMENT ---
         stage('Continuous Deployment (Free Tier AWS)') {
             stages {
-                stage('Provision Free Tier VM (Terraform)') {
+                                stage('Provision Free Tier VM (Terraform)') {
                     steps {
                         dir('terraform') {
                             withCredentials([
                                 string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
                                 string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
                             ]) {
-                                sh '''
-                                    # 1. Download Terraform
-                                    echo "Downloading Terraform..."
-                                    curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
-                                    python3 -c "import zipfile; zipfile.ZipFile('terraform.zip').extractall('.')"
-                                    chmod +x terraform
-                                    export PATH=$PATH:$(pwd)
-                                    
-                                    # 2. Run Terraform (AWS Provider automatically reads AWS_ variables)
-                                    echo "Initializing Terraform..."
-                                    terraform init
-                                    
-                                    echo "Applying Terraform..."
-                                    terraform apply -auto-approve -parallelism=1                                '''
                                 script {
-                                    env.EC2_IP = sh(script: 'terraform output -raw public_ip', returnStdout: true).trim()
+                                    // 1. Download and Apply in one shell block, and write the IP to a file
+                                    sh '''
+                                        echo "Downloading Terraform..."
+                                        curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
+                                        python3 -c "import zipfile; zipfile.ZipFile('terraform.zip').extractall('.')"
+                                        chmod +x terraform
+                                        export PATH=$PATH:$(pwd)
+                                        
+                                        echo "Initializing Terraform..."
+                                        terraform init
+                                        
+                                        echo "Applying Terraform..."
+                                        terraform apply -auto-approve -parallelism=1
+                                        
+                                        # Save the IP directly to a temporary text file
+                                        terraform output -raw public_ip > ec2_ip.txt
+                                    '''
+                                    
+                                    // 2. Read the file natively in Groovy so we don't need another sh block
+                                    env.EC2_IP = readFile('ec2_ip.txt').trim()
                                     echo "✅ New AWS EC2 VM created at IP: ${env.EC2_IP}"
                                 }
                             }
