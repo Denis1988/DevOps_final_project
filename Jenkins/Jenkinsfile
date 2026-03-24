@@ -80,28 +80,38 @@ pipeline {
                     }
                 }
 
-                // --- CLI PIPELINE ---
+                                // --- CLI PIPELINE ---
                 stage('CLI CI') {
+                    when { changeset "cli/**" }
                     stages {
                         stage('Test CLI') {
                             steps {
                                 dir('cli') {
-                                    echo "Running Pytest for CLI..."
+                                    echo "Running Pytest for CLI inside Docker..."
+                                    
+                                    // 1. Clean up old containers
+                                    sh 'docker rm -f seyoawe-cli-test || true'
+                                    
+                                    // 2. Build the test image
+                                    sh 'docker build -f ../docker/Dockerfile.cli_test -t seyoawe-cli-test .'
+                                    
+                                    // 3. Run the container. It will execute pytest (based on the CMD in Dockerfile)
+                                    // We don't use -d (detached) because we want Jenkins to wait for tests to finish
+                                    sh 'docker run --name seyoawe-cli-test seyoawe-cli-test'
+                                    
+                                    // 4. Create local reports directory
                                     sh 'mkdir -p reports'
                                     
-                                    // Removed the docker run daemon steps here because CLI scripts don't run as background servers.
-                                    // Create venv, install requirements, and run CLI tests locally.
-                                    sh """
-                                        python3 -m venv ${VENV_DIR}
-                                        . ${VENV_DIR}/bin/activate
-                                        pip install -r ../requirements.txt
-                                        pytest tests/cli_test.py -v --cov=app --cov-report=xml --cov-report=html --junit-xml=reports/unit-tests.xml
-                                    """
+                                    // 5. Copy the generated XML report OUT of the stopped container into Jenkins workspace
+                                    sh 'docker cp seyoawe-cli-test:/opt/seyoawe-engine/reports/unit-tests.xml reports/'
                                 }
                             }
                             post { 
                                 always { 
+                                    // Archive the test results using the copied file
                                     junit 'cli/reports/unit-tests.xml' 
+                                    // Clean up the container
+                                    sh 'docker rm -f seyoawe-cli-test || true'
                                 } 
                             }
                         }
