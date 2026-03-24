@@ -2,10 +2,15 @@ pipeline {
     agent any
 
     environment {
-        // Only non-secret configuration variables remain here
+        // Core Variables
         APP_NAME    = 'seyoawe-engine'
         APP_VERSION = '' // Calculated dynamically
-        EC2_IP      = '' // We keep this here just in case, but rely on the file below
+        EC2_IP      = '' // Relies on the terraform output file
+        
+        // Missing variables that were causing failures
+        VENV_DIR    = 'venv' 
+        repoName    = 'seyoawe-cli'
+        githubUser  = 'your-github-username' // Update this with your actual GH user
     }
 
     stages {
@@ -36,22 +41,31 @@ pipeline {
                     stages {
                         stage('Test Engine') {
                             steps {
-                                dir('engine') {
-                                    echo "Running Pytest for Engine..."
-                                    sh '''
-                                        python3 -m venv venv
-                                        . venv/bin/activate
-                                        pip install -r requirements.txt pytest pytest-cov
-                                        pytest --junitxml=engine-test-results.xml
-                                    '''
-                                }
+                                echo "Running Pytest for Engine..."
+                                sh 'docker rm -f seyoawe-engine || true'
+                                sh 'docker build -f docker/Dockerfile.engine_test -t seyoawe-engine .'
+                                // Run the engine in the background so tests can hit localhost:5000
+                                sh 'docker run -d -p 5000:5000 --name seyoawe-engine seyoawe-engine'
+                                
+                                sh 'mkdir -p reports'
+                                // Create venv, install requirements, and run tests
+                                sh """
+                                    python3 -m venv ${VENV_DIR}
+                                    . ${VENV_DIR}/bin/activate
+                                    pip install -r requirements.txt
+                                    pytest tests/engine_test.py -v --cov=app --cov-report=xml --cov-report=html --junit-xml=reports/seyoawe-engine.xml
+                                """
                             }
-                            post { always { junit 'engine/engine-test-results.xml' } }
+                            post { 
+                                always { 
+                                    sh 'docker rm -f seyoawe-engine || true'
+                                    junit 'reports/seyoawe-engine.xml' 
+                                } 
+                            }
                         }
                         stage('Build & Push Engine Image') {
                             steps {
                                 dir('engine') {
-                                    // Retrieves Docker Hub credentials securely
                                     withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                                         echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
                                         sh "docker build -t ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ."
@@ -75,15 +89,23 @@ pipeline {
                             steps {
                                 dir('cli') {
                                     echo "Running Pytest for CLI..."
-                                    sh '''
-                                        python3 -m venv venv
-                                        . venv/bin/activate
-                                        pip install -r requirements.txt pytest pytest-cov
-                                        pytest --junitxml=cli-test-results.xml
-                                    '''
+                                    sh 'mkdir -p reports'
+                                    
+                                    // Removed the docker run daemon steps here because CLI scripts don't run as background servers.
+                                    // Create venv, install requirements, and run CLI tests locally.
+                                    sh """
+                                        python3 -m venv ${VENV_DIR}
+                                        . ${VENV_DIR}/bin/activate
+                                        pip install -r ../requirements.txt
+                                        pytest tests/cli_test.py -v --cov=app --cov-report=xml --cov-report=html --junit-xml=reports/unit-tests.xml
+                                    """
                                 }
                             }
-                            post { always { junit 'cli/cli-test-results.xml' } }
+                            post { 
+                                always { 
+                                    junit 'cli/reports/unit-tests.xml' 
+                                } 
+                            }
                         }
                         stage('Package & Publish CLI') {
                             steps {
@@ -91,6 +113,19 @@ pipeline {
                                     sh '. venv/bin/activate && python setup.py sdist bdist_wheel'
                                 }
                                 archiveArtifacts artifacts: 'cli/dist/*', allowEmptyArchive: true
+                                
+                                // GitHub Container Registry (ensure repoName is lowercase for GHCR)
+                                withCredentials([usernamePassword(credentialsId: 'github-creds', 
+                                                    passwordVariable: 'GH_PAT', 
+                                                    usernameVariable: 'GH_USER')]) {
+                                    sh """
+                                        echo \$GH_PAT | docker login ghcr.io -u \$GH_USER --password-stdin
+                                        docker tag ${repoName}:${env.BUILD_NUMBER} ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER}
+                                        docker tag ${repoName}:${env.BUILD_NUMBER} ghcr.io/${githubUser}/${repoName}:latest
+                                        docker push ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER}
+                                        docker push ghcr.io/${githubUser}/${repoName}:latest
+                                    """
+                                }
                             }
                         }
                     }
@@ -108,7 +143,7 @@ pipeline {
                                 string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
                                 string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
                             ]) {
-                                // Download, Apply, and Save IP to a file
+                                // Removed markdown formatting from the curl URL
                                 sh '''
                                     echo "Downloading Terraform..."
                                     curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
@@ -134,14 +169,10 @@ pipeline {
                 stage('Install Ansible & Deploy App') {
                     steps {
                         dir('ansible') {
-                            // Wait for the EC2 instance to fully boot up
                             sleep time: 45, unit: 'SECONDS'
                             
                             script {
-                                // 1. Read the IP from the file we just created
                                 def TARGET_IP = readFile('../ec2_ip.txt').trim()
-                                
-                                // 2. Run the shell block using the local variable
                                 sh """
                                     echo "Installing Ansible..."
                                     python3 -m venv venv
@@ -168,7 +199,6 @@ pipeline {
     post {
         always {
             echo "Workspace preserved for Terraform State"
-            // cleanWs() 
         }
         success {
             echo "✅ PIPELINE SUCCESS: Tests passed, images built, and successfully deployed to K3s!"
@@ -176,6 +206,7 @@ pipeline {
         failure {
             echo "❌ PIPELINE FAILED: Automatically creating a Bug in Jira..."
             withCredentials([usernameColonPassword(credentialsId: 'jira-api-token', variable: 'JIRA_AUTH')]) {
+                // Removed markdown formatting from the Jira URL
                 sh '''
                 curl -s -X POST -u "$JIRA_AUTH" \
                      -H "Content-Type: application/json" \

@@ -1,13 +1,9 @@
----
-# 1. DEPLOYMENT: This tells K3s to run your Docker container
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: seyoawe-engine-deployment
-  labels:
-    app: seyoawe-engine
+  name: seyoawe-engine
 spec:
-  replicas: 1
+  replicas: 2 # This creates 2 copies (pods) of your Flask server for load balancing
   selector:
     matchLabels:
       app: seyoawe-engine
@@ -17,26 +13,20 @@ spec:
         app: seyoawe-engine
     spec:
       containers:
-      - name: seyoawe-engine
-        # IMPORTANT: Replace 'Denis1988' with your actual Docker Hub username!
-        image: denis1988/seyoawe-engine:latest
-        imagePullPolicy: Always
+      - name: seyoawe-engine-container
+        cpu: "250m" # Limit CPU usage to 500 millicores (0.25 CPU)
+        image: Denis1988/your-flask-image:latest # Your Docker Hub image
         ports:
-        - containerPort: 8000 # Change this to 5000 or 80 if your Python app uses a different port!
-
-
+        - containerPort: 5000 # The port your Flask app listens on
 ---
-# 2. SERVICE: This exposes your app to the internet
 apiVersion: v1
 kind: Service
 metadata:
-  name: seyoawe-engine-service
+  name: seyoawe-engine-svc # This becomes the DNS name for the CLI app to use
 spec:
-  type: NodePort
   selector:
     app: seyoawe-engine
   ports:
     - protocol: TCP
-      port: 80
-      targetPort: 8000 # This MUST match the containerPort above!
-      nodePort: 30080  # This is the port you will type in your web browser
+      port: 5000
+      targetPort: 5000

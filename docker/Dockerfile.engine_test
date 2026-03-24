@@ -1,0 +1,16 @@
+FROM python:3.13.12-slim
+
+# Set the working directory first
+WORKDIR /opt/seyoawe-engine
+
+# Copy everything into the working directory
+COPY . .
+
+# Inform Docker that the container listens on port 5000
+EXPOSE 5000
+
+# Install dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Ensure Flask listens on 0.0.0.0 so it's accessible from outside the container
+CMD ["./run", "linux"]

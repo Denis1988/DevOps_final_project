@@ -18,6 +18,7 @@ spec:
       containers:
       - name: cli
         image: python:3.11-slim
+        cpu: "250m"
         # This downloads git, installs your CLI wheel directly from the repository, and keeps the pod awake
         command: ["/bin/sh", "-c"]
         args:

@@ -82,14 +82,14 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-resource "aws_instance" "free_instance" {
+resource "aws_instance" "instance" {
   ami             = data.aws_ami.ubuntu.id
-  instance_type   = "t2.micro" # AWS Free Tier
+  instance_type   = "t3.medium"
   key_name        = aws_key_pair.generated_key.key_name
   security_groups = [aws_security_group.seyoawe_sg.name]
 
   tags = {
-    Name = "seyoawe-free-tier"
+    Name = "seyoawe-tier"
   }
 }
 
