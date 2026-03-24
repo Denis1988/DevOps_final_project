@@ -37,7 +37,6 @@ pipeline {
                 
                 // --- ENGINE PIPELINE ---
                 stage('Engine CI') {
-                    when { changeset "engine/**" }
                     stages {
                         stage('Test Engine') {
                             steps {
@@ -83,7 +82,6 @@ pipeline {
 
                 // --- CLI PIPELINE ---
                 stage('CLI CI') {
-                    when { changeset "cli/**" }
                     stages {
                         stage('Test CLI') {
                             steps {
