@@ -38,29 +38,22 @@ pipeline {
                                 // --- ENGINE PIPELINE ---
                 stage('Engine CI') {
                     stages {
-                                                stage('Test Engine') {
+                                                                        stage('Test Engine') {
                             steps {
                                 dir('.') {
                                     echo "Running Pytest for Engine..."
-                                    
-                                    // 1. Clean up old containers
                                     sh 'docker rm -f seyoawe-engine-test || true'
-                                    
-                                    // 2. Build the test image (just like the CLI stage)
                                     sh 'docker build -f docker/Dockerfile.engine_test -t seyoawe-engine-test .'
-                                    
-                                    // 3. Run the container. It will execute pytest based on the CMD in Dockerfile
-                                    sh 'docker run --name seyoawe-engine-test seyoawe-engine-test'
-                                    
-                                    // 4. Create local reports directory
                                     sh 'mkdir -p reports'
                                     
-                                    // 5. Copy the generated XML report OUT of the stopped container
-                                    sh 'docker cp seyoawe-engine-test:/opt/seyoawe-engine/reports/seyoawe-engine.xml reports/'
+                                    // If pytest fails, this returns exit code 1 and skips to post block
+                                    sh 'docker run --name seyoawe-engine-test seyoawe-engine-test'
                                 }
                             }
                             post { 
                                 always { 
+                                    // ALWAYS pull the report out, even if tests failed
+                                    sh 'docker cp seyoawe-engine-test:/opt/seyoawe-engine/reports/seyoawe-engine.xml reports/ || true'
                                     junit 'reports/seyoawe-engine.xml' 
                                     sh 'docker rm -f seyoawe-engine-test || true'
                                 } 
@@ -88,36 +81,28 @@ pipeline {
                                 // --- CLI PIPELINE ---
                 stage('CLI CI') {
                     stages {
-                        stage('Test CLI') {
+                                                stage('Test CLI') {
                             steps {
                                 dir('.') {
                                     echo "Running Pytest for CLI inside Docker..."
-                                    
-                                    // 1. Clean up old containers
                                     sh 'docker rm -f seyoawe-cli-test || true'
-                                    
-                                    // 2. Build the test image
-                                    sh 'docker build -f docker/Dockerfile.cli_test -t seyoawe-cli-test .'                                    
-                                    // 3. Run the container. It will execute pytest (based on the CMD in Dockerfile)
-                                    // We don't use -d (detached) because we want Jenkins to wait for tests to finish
-                                    sh 'docker run --name seyoawe-cli-test seyoawe-cli-test'
-                                    
-                                    // 4. Create local reports directory
+                                    sh 'docker build -f docker/Dockerfile.cli_test -t seyoawe-cli-test .'
                                     sh 'mkdir -p reports'
                                     
-                                    // 5. Copy the generated XML report OUT of the stopped container into Jenkins workspace
-                                    sh 'docker cp seyoawe-cli-test:/opt/seyoawe-engine/reports/unit-tests.xml reports/'
+                                    // If pytest fails, this returns exit code 1 and skips to post block
+                                    sh 'docker run --name seyoawe-cli-test seyoawe-cli-test'
                                 }
                             }
                             post { 
                                 always { 
-                                    // Archive the test results using the copied file
+                                    // ALWAYS pull the report out, even if tests failed
+                                    sh 'docker cp seyoawe-cli-test:/opt/seyoawe-engine/reports/unit-tests.xml reports/ || true'
                                     junit 'reports/unit-tests.xml' 
-                                    // Clean up the container
                                     sh 'docker rm -f seyoawe-cli-test || true'
                                 } 
                             }
                         }
+                        
                         stage('Package & Publish CLI') {
                             steps {
                                 dir('cli') {
