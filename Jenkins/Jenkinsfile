@@ -43,22 +43,26 @@ pipeline {
                                 dir('.') {
                                     echo "Running Pytest for Engine..."
                                     
-                                    sh 'docker rm -f seyoawe-engine-tester || true'
+                                    // 1. Clean up old containers
+                                    sh 'docker rm -f seyoawe-engine-test || true'
+                                    
+                                    // 2. Build the test image (just like the CLI stage)
+                                    sh 'docker build -f docker/Dockerfile.engine_test -t seyoawe-engine-test .'
+                                    
+                                    // 3. Run the container. It will execute pytest based on the CMD in Dockerfile
+                                    sh 'docker run --name seyoawe-engine-test seyoawe-engine-test'
+                                    
+                                    // 4. Create local reports directory
                                     sh 'mkdir -p reports'
                                     
-                                    // Use PWD to reliably map the exact directory Jenkins is currently standing in
-                                    sh """
-                                        docker run --name seyoawe-engine-tester \\
-                                        -v \$(pwd):/workspace \\
-                                        -w /workspace \\
-                                        python:3.13.12-slim bash -c "pip install -r requirements.txt && pytest tests/engine_test.py -v --junit-xml=reports/seyoawe-engine.xml"
-                                    """
+                                    // 5. Copy the generated XML report OUT of the stopped container
+                                    sh 'docker cp seyoawe-engine-test:/opt/seyoawe-engine/reports/seyoawe-engine.xml reports/'
                                 }
                             }
                             post { 
                                 always { 
                                     junit 'reports/seyoawe-engine.xml' 
-                                    sh 'docker rm -f seyoawe-engine-tester || true'
+                                    sh 'docker rm -f seyoawe-engine-test || true'
                                 } 
                             }
                         }

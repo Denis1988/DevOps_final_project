@@ -16,4 +16,4 @@ RUN sed -i 's/\r$//' run.sh
 RUN chmod +x run.sh
 # Also make the actual binary executable!
 RUN chmod +x seyoawe.linux
-CMD ["./run.sh", "linux"]
+CMD ["pytest", "tests/engine_test.py", "-v", "--junit-xml=reports/seyoawe-engine.xml"]
