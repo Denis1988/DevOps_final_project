@@ -35,33 +35,49 @@ pipeline {
         stage('Parallel CI Build & Test') {
             parallel {
                 
-                // --- ENGINE PIPELINE ---
+                                // --- ENGINE PIPELINE ---
                 stage('Engine CI') {
                     stages {
                         stage('Test Engine') {
                             steps {
                                 echo "Running Pytest for Engine..."
+                                
+                                // 1. Clean up old containers
                                 sh 'docker rm -f seyoawe-engine || true'
+                                sh 'docker rm -f seyoawe-engine-tester || true'
+                                
+                                // 2. Build the engine image
                                 sh 'docker build -f docker/Dockerfile.engine_test -t seyoawe-engine .'
-                                // Run the engine in the background so tests can hit localhost:5000
+                                
+                                // 3. Run the engine in the background
                                 sh 'docker run -d -p 5000:5000 --name seyoawe-engine seyoawe-engine'
                                 
+                                // 4. Create local reports directory
                                 sh 'mkdir -p reports'
-                                // Create venv, install requirements, and run tests
+                                
+                                // 5. Run a temporary python container to execute the tests.
+                                // --network="container:seyoawe-engine" makes "localhost" inside the test container 
+                                // point exactly to the seyoawe-engine container!
                                 sh """
-                                    python3 -m venv ${VENV_DIR}
-                                    . ${VENV_DIR}/bin/activate
-                                    pip install -r requirements.txt
-                                    pytest tests/engine_test.py -v --cov=app --cov-report=xml --cov-report=html --junit-xml=reports/seyoawe-engine.xml
+                                    docker run --name seyoawe-engine-tester \\
+                                    --network="container:seyoawe-engine" \\
+                                    -v ${WORKSPACE}:/workspace \\
+                                    -w /workspace \\
+                                    python:3.13.12-slim bash -c "pip install -r requirements.txt && pytest tests/engine_test.py -v --junit-xml=reports/seyoawe-engine.xml"
                                 """
                             }
                             post { 
                                 always { 
-                                    sh 'docker rm -f seyoawe-engine || true'
+                                    // Archive the reports generated in the mapped workspace
                                     junit 'reports/seyoawe-engine.xml' 
+                                    
+                                    // Clean up both containers
+                                    sh 'docker rm -f seyoawe-engine || true'
+                                    sh 'docker rm -f seyoawe-engine-tester || true'
                                 } 
                             }
                         }
+                        
                         stage('Build & Push Engine Image') {
                             steps {
                                 dir('.') {
@@ -92,7 +108,7 @@ pipeline {
                                     sh 'docker rm -f seyoawe-cli-test || true'
                                     
                                     // 2. Build the test image
-                                    sh 'docker build -f ../docker/Dockerfile.cli_test -t seyoawe-cli-test ..'
+                                    sh 'docker build -f ../docker/Dockerfile.cli_test -t seyoawe-cli-test .'
                                     
                                     // 3. Run the container. It will execute pytest (based on the CMD in Dockerfile)
                                     // We don't use -d (detached) because we want Jenkins to wait for tests to finish
@@ -108,7 +124,7 @@ pipeline {
                             post { 
                                 always { 
                                     // Archive the test results using the copied file
-                                    junit 'cli/reports/unit-tests.xml' 
+                                    junit 'reports/unit-tests.xml' 
                                     // Clean up the container
                                     sh 'docker rm -f seyoawe-cli-test || true'
                                 } 
