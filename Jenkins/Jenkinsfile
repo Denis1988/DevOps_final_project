@@ -64,7 +64,7 @@ pipeline {
                         }
                         stage('Build & Push Engine Image') {
                             steps {
-                                dir('engine') {
+                                dir('.') {
                                     withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                                         echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
                                         sh "docker build -t ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ."
@@ -85,7 +85,7 @@ pipeline {
                     stages {
                         stage('Test CLI') {
                             steps {
-                                dir('cli') {
+                                dir('.') {
                                     echo "Running Pytest for CLI inside Docker..."
                                     
                                     // 1. Clean up old containers

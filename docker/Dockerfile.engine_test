@@ -12,12 +12,8 @@ EXPOSE 5000
 # Install dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# FIX 1: Convert Windows line endings (CRLF) to Linux line endings (LF)
-# This prevents the hidden '\r' character from breaking the execution
-RUN sed -i 's/\r$//' run
-
-# FIX 2: Make the run script executable
-RUN chmod +x run
-
-# Ensure Flask listens on 0.0.0.0 so it's accessible from outside the container
-CMD ["./run", "linux"]
+RUN sed -i 's/\r$//' run.sh
+RUN chmod +x run.sh
+# Also make the actual binary executable!
+RUN chmod +x seyoawe.linux
+CMD ["./run.sh", "linux"]

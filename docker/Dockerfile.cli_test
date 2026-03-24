@@ -7,4 +7,4 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Run pytest and output the XML to a specific folder
 # We use CMD instead of RUN so it executes when the container starts, not during build
-CMD ["pytest", "tests/cli_test.py", "-v", "--cov=app", "--cov-report=xml", "--cov-report=html", "--junit-xml=reports/unit-tests.xml"]
+CMD ["pytest", "tests/cli_test.py", "-v", "--cov=sawectl", "--cov-report=xml", "--cov-report=html", "--junit-xml=reports/unit-tests.xml"]
