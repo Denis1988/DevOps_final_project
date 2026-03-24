@@ -38,20 +38,22 @@ pipeline {
                                 // --- ENGINE PIPELINE ---
                 stage('Engine CI') {
                     stages {
-                        stage('Test Engine') {
+                                                stage('Test Engine') {
                             steps {
-                                echo "Running Pytest for Engine..."
-                                
-                                sh 'docker rm -f seyoawe-engine-tester || true'
-                                sh 'mkdir -p reports'
-                                
-                                // Run a python container, mount the workspace, install requirements, and run tests
-                                sh """
-                                    docker run --name seyoawe-engine-tester \\
-                                    -v ${WORKSPACE}:/workspace \\
-                                    -w /workspace \\
-                                    python:3.13.12-slim bash -c "pip install -r requirements.txt && pytest tests/engine_test.py -v --junit-xml=reports/seyoawe-engine.xml"
-                                """
+                                dir('.') {
+                                    echo "Running Pytest for Engine..."
+                                    
+                                    sh 'docker rm -f seyoawe-engine-tester || true'
+                                    sh 'mkdir -p reports'
+                                    
+                                    // Use PWD to reliably map the exact directory Jenkins is currently standing in
+                                    sh """
+                                        docker run --name seyoawe-engine-tester \\
+                                        -v \$(pwd):/workspace \\
+                                        -w /workspace \\
+                                        python:3.13.12-slim bash -c "pip install -r requirements.txt && pytest tests/engine_test.py -v --junit-xml=reports/seyoawe-engine.xml"
+                                    """
+                                }
                             }
                             post { 
                                 always { 

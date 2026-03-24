@@ -3,7 +3,7 @@ import os
 import shutil
 
 # Assumes tests are run from the directory containing sawectl.py
-CLI_SCRIPT = "python3 sawectl.py"
+CLI_SCRIPT = "python3 sawectl/sawectl.py"
 
 def test_init_module():
     """Test generating a new module."""
