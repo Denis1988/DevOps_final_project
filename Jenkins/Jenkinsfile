@@ -92,7 +92,7 @@ pipeline {
                                     sh 'docker rm -f seyoawe-cli-test || true'
                                     
                                     // 2. Build the test image
-                                    sh 'docker build -f ../docker/Dockerfile.cli_test -t seyoawe-cli-test .'
+                                    sh 'docker build -f ../docker/Dockerfile.cli_test -t seyoawe-cli-test ..'
                                     
                                     // 3. Run the container. It will execute pytest (based on the CMD in Dockerfile)
                                     // We don't use -d (detached) because we want Jenkins to wait for tests to finish
