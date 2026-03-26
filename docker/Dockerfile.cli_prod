@@ -1,26 +1,17 @@
-# 1. Start from your existing image on Docker Hub
-# Replace 'your-username' and 'your-image-name' with your actual Docker Hub details
-FROM your-username/your-image-name:latest
+# Start from Python slim image, just like your other Dockerfiles
+FROM python:3.13.12-slim
 
-# 2. Switch to root to ensure we have permission to install ttyd
-USER root
+# Set the working directory
+WORKDIR /opt/seyoawe-cli
 
-# 3. Download the pre-compiled static binary for ttyd (v1.7.7)
-# This avoids needing package managers like apt or apk which vary by base image
-ADD https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 /usr/local/bin/ttyd
+# Copy all the CLI code into the container
+COPY . .
 
-# 4. Make the ttyd binary executable
-RUN chmod +x /usr/local/bin/ttyd
+# Install any requirements your CLI needs
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# 5. Expose the port ttyd runs on
-EXPOSE 7681
+# Create an alias so 'sawectl' works directly
+RUN ln -s /opt/seyoawe-cli/sawectl/sawectl.py /usr/local/bin/sawectl && chmod +x /usr/local/bin/sawectl
 
-# 6. Switch back to a non-root user if your application requires it (Optional but recommended)
-# USER your-app-user
-
-# 7. Start ttyd and point it to your CLI application command
-# -W allows browser users to type in the terminal (write access)
-# -p 7681 sets the port
-# -c admin:YourPassword sets basic auth (change this to a secure password)
-# Replace 'your-cli-command' with the actual command used to start your app
-CMD ["ttyd", "-W", "-p", "7681", "-c", "admin:YourPassword", "your-cli-command"]
+# Set the default command to print the help menu when the container starts
+CMD ["python3", "sawectl/sawectl.py", "--help"]

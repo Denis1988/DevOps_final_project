@@ -9,7 +9,7 @@ def test_flask_is_running():
     url = "http://localhost:5000"
     max_retries = 5
     
-    # 1. Start the compiled binary in the background
+    # Start the compiled binary
     process = subprocess.Popen(
         ["./seyoawe.linux"], 
         stdout=subprocess.PIPE, 
@@ -18,6 +18,12 @@ def test_flask_is_running():
     )
     
     try:
+        # Check immediately if it crashed on boot
+        time.sleep(1) 
+        if process.poll() is not None:
+            stdout, stderr = process.communicate()
+            pytest.fail(f"Binary crashed immediately!\nSTDOUT:\n{stdout.decode()}\nSTDERR:\n{stderr.decode()}")
+            
         success = False
         for _ in range(max_retries):
             try:
@@ -28,17 +34,10 @@ def test_flask_is_running():
             except requests.exceptions.ConnectionError:
                 time.sleep(2)
         
-        # 3. If it fails, pull the error logs from the binary and print them
         if not success:
-            process.poll() # Check if process crashed
+            process.poll()
             stdout_data, stderr_data = process.communicate()
-            error_msg = f"Engine failed to start!\n"
-            if stderr_data:
-                error_msg += f"STDERR: {stderr_data.decode('utf-8')}\n"
-            if stdout_data:
-                error_msg += f"STDOUT: {stdout_data.decode('utf-8')}\n"
-            
-            pytest.fail(error_msg)
+            pytest.fail(f"Engine failed to answer port 5000!\nSTDERR:\n{stderr_data.decode()}\nSTDOUT:\n{stdout_data.decode()}")
             
     finally:
         import signal
