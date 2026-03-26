@@ -17,13 +17,51 @@ spec:
     spec:
       containers:
       - name: cli
-        image: python:3.11-slim
-        cpu: "250m"
-        # This downloads git, installs your CLI wheel directly from the repository, and keeps the pod awake
+        image: ghcr.io/denis1988/seyoawe-cli:latest
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: "250m"
+        ports:
+          - containerPort: 8080
         command: ["/bin/sh", "-c"]
+        # This downloads the ttyd web terminal and starts it on port 8080
         args:
           - |
-            apt-get update && apt-get install -y git
-            pip install git+https://github.com/YOUR_GIT_USERNAME/YOUR_REPO_NAME.git#subdirectory=cli
-            echo "CLI installed successfully! Sleeping forever to keep pod alive..."
-            sleep infinity
+            apt-get update && apt-get install -y curl
+            curl -sLo /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.3/ttyd.x86_64
+            chmod +x /usr/local/bin/ttyd
+            echo "Starting Web Terminal on port 8080..."
+            ttyd -p 8080 bash
+        env:
+          - name: SEYOAWE_ENGINE_URL
+            value: "http://seyoawe-engine-svc:8080"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seyoawe-cli-svc
+spec:
+  selector:
+    app: seyoawe-cli
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+---
+# K3s uses Traefik by default. This Ingress routes EC2 Port 80 to the CLI web terminal.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cli-web-terminal
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: seyoawe-cli-svc
+            port:
+              number: 80
