@@ -81,7 +81,7 @@ resource "aws_security_group" "seyoawe_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -106,6 +106,12 @@ resource "aws_instance" "instance" {
   instance_type   = "t3.medium"
   key_name        = aws_key_pair.generated_key.key_name
   security_groups = [aws_security_group.seyoawe_sg.name]
+
+  # ADD THIS BLOCK to fix DiskPressure:
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
 
   tags = {
     Name = "seyoawe-tier"

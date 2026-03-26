@@ -10,8 +10,8 @@
       wait_for_connection:
         timeout: 60
 
-    - name: Install Python3 on Minimal Image
-      raw: apt-get update && apt-get install -y python3
+    - name: Install Python3 on Minimal Image and docker (for CLI container)
+      raw: apt-get update && apt-get install -y python3 docker.io
       changed_when: false
 
   tasks:
