@@ -71,7 +71,7 @@ pipeline {
                                 dir('.') {
                                     withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                                         echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
-                                        sh "docker build -t ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ."
+                                        sh "docker build -f docker/Dockerfile.engine_prod -t ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER} ."
                                         
                                         sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
                                         sh "docker push ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
