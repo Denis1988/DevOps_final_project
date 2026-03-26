@@ -1,11 +1,24 @@
 terraform {
+  # The S3 backend for storing the state file safely across Jenkins builds
+  backend "s3" {
+    bucket = "denis-s3-bucket-for-devops-course"
+    key    = "production/terraform.tfstate"
+    region = "eu-central-1"
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    tls = { source = "hashicorp/tls", version = "~> 4.0" }
-    local = { source = "hashicorp/local", version = "~> 2.0" }
+    tls = { 
+      source  = "hashicorp/tls" 
+      version = "~> 4.0" 
+    }
+    local = { 
+      source  = "hashicorp/local" 
+      version = "~> 2.0" 
+    }
   }
 }
 
@@ -95,5 +108,5 @@ resource "aws_instance" "instance" {
 
 # --- Outputs ---
 output "public_ip" {
-  value = aws_instance.free_instance.public_ip
+  value = aws_instance.instance.public_ip
 }
