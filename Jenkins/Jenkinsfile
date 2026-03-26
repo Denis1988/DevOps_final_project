@@ -66,21 +66,36 @@ pipeline {
                             }
                         }
 
-                        stage('Build & Push Engine Image') {
-                            steps {
-                                dir('.') {
-                                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                                        echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
-                                        sh "docker build -f docker/Dockerfile.engine_prod -t ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER} ."
-                                        
-                                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
-                                        sh "docker push ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION}"
-                                        sh "docker tag ${DOCKER_USER}/${APP_NAME}:${env.APP_VERSION} ${DOCKER_USER}/${APP_NAME}:latest"
-                                        sh "docker push ${DOCKER_USER}/${APP_NAME}:latest"
-                                    }
-                                }
-                            }
-                        }
+        stage('Build & Push Engine Image') {
+            steps {
+                dir('.') {
+                    echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER}"
+                    sh "docker build -f docker/Dockerfile.engine_prod -t ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER} ."
+                    
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
+                                        passwordVariable: 'DOCKER_PASS', 
+                                        usernameVariable: 'DOCKER_USER_ID')]) {
+                        sh """
+                            echo "=========================================="
+                            echo "DEBUG: Verifying Docker Hub Credentials..."
+                            echo "DEBUG: Attempting to authenticate to Docker Hub..."
+                            echo "=========================================="
+                            
+                            echo \$DOCKER_PASS | docker login -u \$DOCKER_USER_ID --password-stdin
+                            
+                            echo "=========================================="
+                            echo "DEBUG: Docker Login SUCCESS! Proceeding to push images..."
+                            echo "=========================================="
+                            
+                            docker push ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER}
+                            
+                            docker tag ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER} ${DOCKER_USER}/${APP_NAME}:latest
+                            docker push ${DOCKER_USER}/${APP_NAME}:latest
+                        """
+                    }
+                }
+            }
+        }
                     }
                 }
 
