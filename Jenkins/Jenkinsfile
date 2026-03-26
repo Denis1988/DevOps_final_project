@@ -1,6 +1,12 @@
 pipeline {
     agent any
 
+    options 
+    {
+    buildDiscarder(logRotator(numToKeepStr: '5', artifactNumToKeepStr: '5'))
+    disableConcurrentBuilds()
+    }
+
     environment {
         // Core Variables
         APP_NAME    = 'seyoawe-engine'
@@ -81,7 +87,7 @@ pipeline {
                                 // --- CLI PIPELINE ---
                 stage('CLI CI') {
                     stages {
-                                                stage('Test CLI') {
+                        stage('Test CLI') {
                             steps {
                                 dir('.') {
                                     echo "Running Pytest for CLI inside Docker..."
@@ -106,20 +112,28 @@ pipeline {
                             steps {
                                 dir('.') {
                                     echo "Building CLI Production Image..."
-                                    // 1. Build the production image of the CLI
-                                    sh "docker build -f docker/Dockerfile.cli_prod -t ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER} ."
+                                    sh "docker build -f docker/Dockerfile.cli_prod -t ghcr.io/Denis1988/seyoawe-cli:${env.BUILD_NUMBER} ."
+                                    sh "docker tag ghcr.io/Denis1988/seyoawe-cli:${env.BUILD_NUMBER} ghcr.io/Denis1988/seyoawe-cli:latest"
                                     
-                                    // 2. Tag it as latest as well
-                                    sh "docker tag ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER} ghcr.io/${githubUser}/${repoName}:latest"
-                                    
-                                    // 3. Login and push to GitHub Container Registry
                                     withCredentials([usernamePassword(credentialsId: 'github-creds', 
                                                         passwordVariable: 'GH_PAT', 
                                                         usernameVariable: 'GH_USER')]) {
                                         sh """
+                                            echo "=========================================="
+                                            echo "DEBUG: Verifying GitHub Credentials..."
+                                            echo "DEBUG: The GitHub Username from Jenkins is: \$GH_USER"
+                                            echo "DEBUG: Attempting to authenticate to ghcr.io..."
+                                            echo "=========================================="
+                                            
+                                            # This command will fail if the token is wrong or missing write:packages
                                             echo \$GH_PAT | docker login ghcr.io -u \$GH_USER --password-stdin
-                                            docker push ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER}
-                                            docker push ghcr.io/${githubUser}/${repoName}:latest
+                                            
+                                            echo "=========================================="
+                                            echo "DEBUG: Docker Login SUCCESS! Proceeding to push images..."
+                                            echo "=========================================="
+                                            
+                                            docker push ghcr.io/Denis1988/seyoawe-cli:${env.BUILD_NUMBER}
+                                            docker push ghcr.io/Denis1988/seyoawe-cli:latest
                                         """
                                     }
                                 }
@@ -196,6 +210,8 @@ pipeline {
     post {
         always {
             echo "Workspace preserved for Terraform State"
+            echo "Cleaning up workspace to save disk space..."
+            cleanWs()
         }
         success {
             echo "✅ PIPELINE SUCCESS: Tests passed, images built, and successfully deployed to K3s!"
