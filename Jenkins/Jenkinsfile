@@ -66,15 +66,17 @@ pipeline {
                             }
                         }
 
-        stage('Build & Push Engine Image') {
+                stage('Build & Push Engine Image') {
             steps {
                 dir('.') {
-                    echo "Building Docker image ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER}"
-                    sh "docker build -f docker/Dockerfile.engine_prod -t ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER} ."
-                    
                     withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
                                         passwordVariable: 'DOCKER_PASS', 
                                         usernameVariable: 'DOCKER_USER_ID')]) {
+                                        
+                        echo "Building Docker image ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER}"
+                        
+                        sh "docker build -f docker/Dockerfile.engine_prod -t ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER} ."
+                        
                         sh """
                             echo "=========================================="
                             echo "DEBUG: Verifying Docker Hub Credentials..."
@@ -87,10 +89,10 @@ pipeline {
                             echo "DEBUG: Docker Login SUCCESS! Proceeding to push images..."
                             echo "=========================================="
                             
-                            docker push ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER}
+                            docker push ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER}
                             
-                            docker tag ${DOCKER_USER}/${APP_NAME}:${env.BUILD_NUMBER} ${DOCKER_USER}/${APP_NAME}:latest
-                            docker push ${DOCKER_USER}/${APP_NAME}:latest
+                            docker tag ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER} ${env.DOCKER_USER_ID}/${APP_NAME}:latest
+                            docker push ${env.DOCKER_USER_ID}/${APP_NAME}:latest
                         """
                     }
                 }
