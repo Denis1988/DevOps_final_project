@@ -6,7 +6,7 @@ import os
 
 def test_flask_is_running():
     """Verify the pre-compiled Flask engine is up and responding."""
-    url = "http://localhost:5000"
+    url = "http://localhost:8080"
     max_retries = 15  # Increased to 15 retries (30 seconds total)
     
     # 1. Start the compiled binary in the background
