@@ -9,11 +9,16 @@ COPY . .
 # Inform Docker that the container listens on port 5000
 EXPOSE 5000
 
-# Install dependencies
+# Install system dependencies required by the binary (Git)
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 RUN sed -i 's/\r$//' run.sh
+
 RUN chmod +x run.sh
-# Also make the actual binary executable!
 RUN chmod +x seyoawe.linux
+
+# Ensure Flask tests run
 CMD ["pytest", "tests/engine_test.py", "-v", "--junit-xml=reports/seyoawe-engine.xml"]

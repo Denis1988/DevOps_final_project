@@ -102,25 +102,26 @@ pipeline {
                                 } 
                             }
                         }
-                        
                         stage('Package & Publish CLI') {
                             steps {
-                                dir('cli') {
-                                    sh '. venv/bin/activate && python setup.py sdist bdist_wheel'
-                                }
-                                archiveArtifacts artifacts: 'cli/dist/*', allowEmptyArchive: true
-                                
-                                // GitHub Container Registry (ensure repoName is lowercase for GHCR)
-                                withCredentials([usernamePassword(credentialsId: 'github-creds', 
-                                                    passwordVariable: 'GH_PAT', 
-                                                    usernameVariable: 'GH_USER')]) {
-                                    sh """
-                                        echo \$GH_PAT | docker login ghcr.io -u \$GH_USER --password-stdin
-                                        docker tag ${repoName}:${env.BUILD_NUMBER} ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER}
-                                        docker tag ${repoName}:${env.BUILD_NUMBER} ghcr.io/${githubUser}/${repoName}:latest
-                                        docker push ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER}
-                                        docker push ghcr.io/${githubUser}/${repoName}:latest
-                                    """
+                                dir('.') {
+                                    echo "Building CLI Production Image..."
+                                    // 1. Build the production image of the CLI
+                                    sh "docker build -f docker/Dockerfile.cli_prod -t ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER} ."
+                                    
+                                    // 2. Tag it as latest as well
+                                    sh "docker tag ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER} ghcr.io/${githubUser}/${repoName}:latest"
+                                    
+                                    // 3. Login and push to GitHub Container Registry
+                                    withCredentials([usernamePassword(credentialsId: 'github-creds', 
+                                                        passwordVariable: 'GH_PAT', 
+                                                        usernameVariable: 'GH_USER')]) {
+                                        sh """
+                                            echo \$GH_PAT | docker login ghcr.io -u \$GH_USER --password-stdin
+                                            docker push ghcr.io/${githubUser}/${repoName}:${env.BUILD_NUMBER}
+                                            docker push ghcr.io/${githubUser}/${repoName}:latest
+                                        """
+                                    }
                                 }
                             }
                         }
