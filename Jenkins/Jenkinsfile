@@ -112,8 +112,8 @@ pipeline {
                             steps {
                                 dir('.') {
                                     echo "Building CLI Production Image..."
-                                    sh "docker build -f docker/Dockerfile.cli_prod -t ghcr.io/Denis1988/seyoawe-cli:${env.BUILD_NUMBER} ."
-                                    sh "docker tag ghcr.io/Denis1988/seyoawe-cli:${env.BUILD_NUMBER} ghcr.io/Denis1988/seyoawe-cli:latest"
+                                    sh "docker build -f docker/Dockerfile.cli_prod -t ghcr.io/denis1988/seyoawe-cli:${env.BUILD_NUMBER} ."
+                                    sh "docker tag ghcr.io/denis1988/seyoawe-cli:${env.BUILD_NUMBER} ghcr.io/denis1988/seyoawe-cli:latest"
                                     
                                     withCredentials([usernamePassword(credentialsId: 'github-creds', 
                                                         passwordVariable: 'GH_PAT', 
@@ -132,8 +132,8 @@ pipeline {
                                             echo "DEBUG: Docker Login SUCCESS! Proceeding to push images..."
                                             echo "=========================================="
                                             
-                                            docker push ghcr.io/Denis1988/seyoawe-cli:${env.BUILD_NUMBER}
-                                            docker push ghcr.io/Denis1988/seyoawe-cli:latest
+                                            docker push ghcr.io/denis1988/seyoawe-cli:${env.BUILD_NUMBER}
+                                            docker push ghcr.io/denis1988/seyoawe-cli:latest
                                         """
                                     }
                                 }
