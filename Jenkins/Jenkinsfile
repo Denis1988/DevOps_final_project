@@ -17,7 +17,6 @@ pipeline {
         // Missing variables that were causing failures
         VENV_DIR    = 'venv' 
         repoName    = 'seyoawe-cli'
-        githubUser  = 'your-github-username' // Update this with your actual GH user
     }
 
     stages {
