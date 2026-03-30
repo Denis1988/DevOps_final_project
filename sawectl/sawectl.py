@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 # SeyoAWE CLI Tool
 
 import os
