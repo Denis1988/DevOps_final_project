@@ -1,25 +1,27 @@
 pipeline {
     agent any
 
-    options 
-    {
-    buildDiscarder(logRotator(numToKeepStr: '5', artifactNumToKeepStr: '5'))
-    disableConcurrentBuilds()
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '5', artifactNumToKeepStr: '5'))
+        disableConcurrentBuilds()
     }
 
     environment {
         // Core Variables
         APP_NAME    = 'seyoawe-engine'
-        APP_VERSION = '' // Calculated dynamically
+        CLI_NAME    = 'seyoawe-cli'
+        APP_VERSION = '' // Base version from file
+        IMAGE_TAG   = '' // The final version tag (Version + Build Number)
         EC2_IP      = '' // Relies on the terraform output file
         
         // Missing variables that were causing failures
         VENV_DIR    = 'venv' 
         repoName    = 'seyoawe-cli'
+        githubUser  = 'your-github-username' // Update this with your actual GH user
     }
 
     stages {
-        stage('Initialize & Calculate Version') {
+        stage('Initialize & Calculate Base Version') {
             steps {
                 script {
                     sh "ls -R ${WORKSPACE}"
@@ -31,13 +33,14 @@ pipeline {
                         echo "WARNING: VERSION file not found. Using default 1.0.0"
                         env.APP_VERSION = "1.0.0"
                     }
-                    echo "Starting build for Global Version: ${env.APP_VERSION}"
+                    echo "Base Application Version: ${env.APP_VERSION}"
                 }
             }
         }
 
         // CI Phase - Parallel execution of Engine and CLI
         stage('Parallel CI Build & Test') {
+            failFast true // If ANY test fails, stop everything immediately and go to Failure block
             parallel {
                 
                 // --- ENGINE PIPELINE ---
@@ -51,7 +54,7 @@ pipeline {
                                     sh 'docker build -f docker/Dockerfile.engine_test -t seyoawe-engine-test .'
                                     sh 'mkdir -p reports'
                                     
-                                    // If pytest fails, this returns exit code 1 and skips to post block
+                                    // If pytest fails, this returns exit code 1 and fails the entire pipeline
                                     sh 'docker run --name seyoawe-engine-test seyoawe-engine-test'
                                 }
                             }
@@ -64,39 +67,6 @@ pipeline {
                                 } 
                             }
                         }
-
-                stage('Build & Push Engine Image') {
-            steps {
-                dir('.') {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
-                                        passwordVariable: 'DOCKER_PASS', 
-                                        usernameVariable: 'DOCKER_USER_ID')]) {
-                                        
-                        echo "Building Docker image ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER}"
-                        
-                        sh "docker build -f docker/Dockerfile.engine_prod -t ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER} ."
-                        
-                        sh """
-                            echo "=========================================="
-                            echo "DEBUG: Verifying Docker Hub Credentials..."
-                            echo "DEBUG: Attempting to authenticate to Docker Hub..."
-                            echo "=========================================="
-                            
-                            echo \$DOCKER_PASS | docker login -u \$DOCKER_USER_ID --password-stdin
-                            
-                            echo "=========================================="
-                            echo "DEBUG: Docker Login SUCCESS! Proceeding to push images..."
-                            echo "=========================================="
-                            
-                            docker push ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER}
-                            
-                            docker tag ${env.DOCKER_USER_ID}/${APP_NAME}:${env.BUILD_NUMBER} ${env.DOCKER_USER_ID}/${APP_NAME}:latest
-                            docker push ${env.DOCKER_USER_ID}/${APP_NAME}:latest
-                        """
-                    }
-                }
-            }
-        }
                     }
                 }
 
@@ -111,7 +81,7 @@ pipeline {
                                     sh 'docker build -f docker/Dockerfile.cli_test -t seyoawe-cli-test .'
                                     sh 'mkdir -p reports'
                                     
-                                    // If pytest fails, this returns exit code 1 and skips to post block
+                                    // If pytest fails, this returns exit code 1 and fails the entire pipeline
                                     sh 'docker run --name seyoawe-cli-test seyoawe-cli-test'
                                 }
                             }
@@ -124,35 +94,78 @@ pipeline {
                                 } 
                             }
                         }
-                        stage('Package & Publish CLI') {
-                            steps {
-                                dir('.') {
-                                    echo "Building CLI Production Image..."
-                                    sh "docker build -f docker/Dockerfile.cli_prod -t ghcr.io/denis1988/seyoawe-cli:${env.BUILD_NUMBER} ."
-                                    sh "docker tag ghcr.io/denis1988/seyoawe-cli:${env.BUILD_NUMBER} ghcr.io/denis1988/seyoawe-cli:latest"
+                    }
+                }
+            }
+        }
+
+        // --- VERSION CONTROL ---
+        // This stage is ONLY reached if ALL tests pass!
+        stage('Version control') {
+            steps {
+                script {
+                    echo "All tests passed! Generating synced release version..."
+                    // Combine the Version File with the Jenkins Build Number for perfect tracking
+                    env.IMAGE_TAG = "${env.APP_VERSION}-${env.BUILD_NUMBER}"
+                    echo "=========================================="
+                    echo "✅ OFFICIAL RELEASE TAG SET TO: ${env.IMAGE_TAG}"
+                    echo "=========================================="
+                }
+            }
+        }
+
+        // --- BUILD & PUBLISH ---
+        stage('Build & Publish') {
+            parallel {
+                
+                stage('Package & Publish CLI') {
+                    steps {
+                        dir('.') {
+                            echo "Building CLI Production Image with tag: ${env.IMAGE_TAG}"
+                            sh "docker build -f docker/Dockerfile.cli_prod -t ghcr.io/denis1988/${CLI_NAME}:${env.IMAGE_TAG} ."
+                            sh "docker tag ghcr.io/denis1988/${CLI_NAME}:${env.IMAGE_TAG} ghcr.io/denis1988/${CLI_NAME}:latest"
+                            
+                            withCredentials([usernamePassword(credentialsId: 'github-creds', 
+                                                passwordVariable: 'GH_PAT', 
+                                                usernameVariable: 'GH_USER')]) {
+                                sh """
+                                    echo "=========================================="
+                                    echo "DEBUG: Attempting to authenticate to ghcr.io..."
+                                    echo "=========================================="
                                     
-                                    withCredentials([usernamePassword(credentialsId: 'github-creds', 
-                                                        passwordVariable: 'GH_PAT', 
-                                                        usernameVariable: 'GH_USER')]) {
-                                        sh """
-                                            echo "=========================================="
-                                            echo "DEBUG: Verifying GitHub Credentials..."
-                                            echo "DEBUG: The GitHub Username from Jenkins is: \$GH_USER"
-                                            echo "DEBUG: Attempting to authenticate to ghcr.io..."
-                                            echo "=========================================="
-                                            
-                                            # This command will fail if the token is wrong or missing write:packages
-                                            echo \$GH_PAT | docker login ghcr.io -u \$GH_USER --password-stdin
-                                            
-                                            echo "=========================================="
-                                            echo "DEBUG: Docker Login SUCCESS! Proceeding to push images..."
-                                            echo "=========================================="
-                                            
-                                            docker push ghcr.io/denis1988/seyoawe-cli:${env.BUILD_NUMBER}
-                                            docker push ghcr.io/denis1988/seyoawe-cli:latest
-                                        """
-                                    }
-                                }
+                                    echo \$GH_PAT | docker login ghcr.io -u \$GH_USER --password-stdin
+                                    
+                                    docker push ghcr.io/denis1988/${CLI_NAME}:${env.IMAGE_TAG}
+                                    docker push ghcr.io/denis1988/${CLI_NAME}:latest
+                                """
+                            }
+                        }
+                    }
+                }
+                
+                stage('Build & Push Engine Image') {
+                    steps {
+                        dir('.') {
+                            withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
+                                                passwordVariable: 'DOCKER_PASS', 
+                                                usernameVariable: 'DOCKER_USER_ID')]) {
+                                                
+                                echo "Building Docker image ${env.DOCKER_USER_ID}/${APP_NAME}:${env.IMAGE_TAG}"
+                                
+                                sh "docker build -f docker/Dockerfile.engine_prod -t ${env.DOCKER_USER_ID}/${APP_NAME}:${env.IMAGE_TAG} ."
+                                
+                                sh """
+                                    echo "=========================================="
+                                    echo "DEBUG: Attempting to authenticate to Docker Hub..."
+                                    echo "=========================================="
+                                    
+                                    echo \$DOCKER_PASS | docker login -u \$DOCKER_USER_ID --password-stdin
+                                    
+                                    docker push ${env.DOCKER_USER_ID}/${APP_NAME}:${env.IMAGE_TAG}
+                                    
+                                    docker tag ${env.DOCKER_USER_ID}/${APP_NAME}:${env.IMAGE_TAG} ${env.DOCKER_USER_ID}/${APP_NAME}:latest
+                                    docker push ${env.DOCKER_USER_ID}/${APP_NAME}:latest
+                                """
                             }
                         }
                     }
@@ -160,7 +173,8 @@ pipeline {
             }
         }
 
-        // --- CD: AWS FREE TIER DEPLOYMENT ---
+
+        // --- CD: AWS DEPLOYMENT ---
         stage('Continuous Deployment') {
             stages {
                 stage('Provision VM machine(Terraform)') {
@@ -170,7 +184,6 @@ pipeline {
                                 string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
                                 string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
                             ]) {
-                                // Removed markdown formatting from the curl URL
                                 sh '''
                                     echo "Downloading Terraform..."
                                     curl -sL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o terraform.zip
@@ -222,6 +235,7 @@ pipeline {
         }
     }
 
+
     // --- PIPELINE STATUS HANDLING ---
     post {
         always {
@@ -230,12 +244,11 @@ pipeline {
             cleanWs()
         }
         success {
-            echo "✅ PIPELINE SUCCESS: Tests passed, images built, and successfully deployed to K3s!"
+            echo "✅ PIPELINE SUCCESS: Tests passed, version ${env.IMAGE_TAG} synced, images built, and deployed to K3s!"
         }
         failure {
             echo "❌ PIPELINE FAILED: Automatically creating a Bug in Jira..."
             withCredentials([usernameColonPassword(credentialsId: 'jira-api-token', variable: 'JIRA_AUTH')]) {
-                // Removed markdown formatting from the Jira URL
                 sh '''
                 curl -s -X POST -u "$JIRA_AUTH" \
                      -H "Content-Type: application/json" \
