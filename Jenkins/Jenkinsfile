@@ -41,10 +41,10 @@ pipeline {
         stage('Parallel CI Build & Test') {
             parallel {
                 
-                                // --- ENGINE PIPELINE ---
+                // --- ENGINE PIPELINE ---
                 stage('Engine CI') {
                     stages {
-                                                                        stage('Test Engine') {
+                        stage('Test Engine') {
                             steps {
                                 dir('.') {
                                     echo "Running Pytest for Engine..."
@@ -101,8 +101,9 @@ pipeline {
                     }
                 }
 
-                                // --- CLI PIPELINE ---
+                // --- CLI PIPELINE ---
                 stage('CLI CI') {
+                    when { changeset "cli/**" }
                     stages {
                         stage('Test CLI') {
                             steps {
