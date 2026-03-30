@@ -10,6 +10,9 @@ COPY . .
 # Install any requirements your CLI needs
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Copy module.schema to workdir
+COPY sawectl/module.schema.json /usr/local/bin/module.schema.json
+
 # Create an alias so 'sawectl' works directly
 RUN ln -s /opt/seyoawe-cli/sawectl/sawectl.py /usr/local/bin/sawectl && chmod +x /usr/local/bin/sawectl
 
