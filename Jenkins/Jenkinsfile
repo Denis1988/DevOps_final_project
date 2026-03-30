@@ -11,7 +11,6 @@ pipeline {
         APP_NAME    = 'seyoawe-engine'
         CLI_NAME    = 'seyoawe-cli'
         APP_VERSION = '' // Base version from file
-        IMAGE_TAG   = '' // The final version tag (Version + Build Number)
         EC2_IP      = '' // Relies on the terraform output file
         
         // Missing variables that were causing failures
@@ -99,13 +98,17 @@ pipeline {
         }
 
         // --- VERSION CONTROL ---
-        // This stage is ONLY reached if ALL tests pass!
         stage('Version control') {
             steps {
                 script {
                     echo "All tests passed! Generating synced release version..."
-                    // Combine the Version File with the Jenkins Build Number for perfect tracking
-                    env.IMAGE_TAG = "${env.APP_VERSION}-${env.BUILD_NUMBER}"
+                    
+                    // Create the variable dynamically without using the 'env.' prefix
+                    IMAGE_TAG = "${env.APP_VERSION}-${env.BUILD_NUMBER}"
+                    
+                    // Force it into the global environment for the Docker commands
+                    env.IMAGE_TAG = IMAGE_TAG
+                    
                     echo "=========================================="
                     echo "✅ OFFICIAL RELEASE TAG SET TO: ${env.IMAGE_TAG}"
                     echo "=========================================="
