@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-VERSION = "0.0.2"
+VERSION = "0.0.1"
 # SeyoAWE CLI Tool
 
 import os
@@ -134,7 +134,7 @@ def validate_workflow_deep(args):
         if not ok:
             print(f"[FAIL] {msg}")
             sys.exit(1)
-        elif getattr(args, 'verbose', False):
+        elif args.verbose:
             print(f"[OK] {msg}")
 
     for cm_id, cm_conf in context_modules.items():
@@ -147,7 +147,7 @@ def validate_workflow_deep(args):
         if manifest is None:
             print(f"[FAIL] Context module type '{module_name}' not found")
             sys.exit(1)
-        elif getattr(args, 'verbose', False):
+        elif args.verbose:
             print(f"[OK] Context module '{cm_id}' valid")
 
     if 'global_failure_handler' in workflow:
@@ -155,7 +155,7 @@ def validate_workflow_deep(args):
         if not ok:
             print(f"[FAIL] global_failure_handler: {msg}")
             sys.exit(1)
-        elif getattr(args, 'verbose', False):
+        elif args.verbose:
             print(f"[OK] global_failure_handler validated")
 
     if 'on_failure' in workflow:
@@ -164,7 +164,7 @@ def validate_workflow_deep(args):
             if not ok:
                 print(f"[FAIL] on_failure step: {msg}")
                 sys.exit(1)
-            elif getattr(args, 'verbose', False):
+            elif args.verbose:
                 print(f"[OK] on_failure step '{step['id']}' validated")
 
     if 'on_success' in workflow:
@@ -173,7 +173,7 @@ def validate_workflow_deep(args):
             if not ok:
                 print(f"[FAIL] on_success step: {msg}")
                 sys.exit(1)
-            elif getattr(args, 'verbose', False):
+            elif args.verbose:
                 print(f"[OK] on_success step '{step['id']}' validated")
 
     print("[VALIDATION PASSED] Workflow is fully valid.")
@@ -294,7 +294,10 @@ def generate_full_workflow_from_schema_and_modules(schema_path, modules_dir="mod
 
     # Sort for consistency
     wf["steps"] = sorted(steps, key=lambda x: x["id"])
+    # wf["context_modules"] = context_modules
     return {"workflow": wf}
+
+
 
 
 # === COMMANDS ===
@@ -304,7 +307,7 @@ def init_module_from_schema(args):
 
     module_name = args.name
     class_name = module_name.capitalize()
-    module_dir = Path(getattr(args, 'modules_path', 'modules')) / module_name
+    module_dir = Path(args.modules or "modules") / module_name
     module_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Generate manifest
@@ -384,18 +387,42 @@ def run_workflow(args):
         sys.exit(1)
 
 
-def list_modules(args):
-    modules_dir = Path(getattr(args, 'modules_path', 'modules'))
-    if not modules_dir.exists():
-        print(f"No modules directory found at {modules_dir}")
-        return
-        
-    print("Installed Modules:")
-    for mod in sorted(modules_dir.iterdir()):
-        if mod.is_dir():
-            print(f" - {mod.name}")
+def init_module(args):
+    module_dir = Path(f"modules/{args.name}")
+    module_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(module_dir / "module.yaml", "w") as f:
+        f.write("""name: {name}
+class: {class_name}
+version: 1.0
+author: Your Name
+
+methods:
+  - name: run
+    description: Basic run method
+    arguments:
+      - name: param1
+        type: string
+        required: true
+      - name: param2
+        type: int
+        required: false
+""".format(name=args.name, class_name=args.name.capitalize()))
+
+    with open(module_dir / f"{args.name}.py", "w") as f:
+        f.write(f"""class {args.name.capitalize()}:
+    def __init__(self, context, **module_config):
+        self.context = context
+
+    def run(self, param1, param2=None):
+        return {{"status": "ok", "message": "Success", "data": {{"param1": param1, "param2": param2}} }}
+""")
+    print(f"[INIT] Module skeleton created at {module_dir}")
 
 def extract_enum_from_schema(schema, path):
+    """
+    Extracts an enum list from a schema given a dotted path like 'workflow.trigger.type'
+    """
     parts = path.split(".")
     node = schema
     for part in parts:
@@ -410,11 +437,11 @@ def extract_enum_from_schema(schema, path):
 
 
 def init_workflow(args):
-    workflows_dir = Path(getattr(args, 'workflows_path', 'workflows'))
+    workflows_dir = Path(args.workflows_path or "workflows")
     workflows_dir.mkdir(parents=True, exist_ok=True)
     path = workflows_dir / f"{args.name}.yaml"
 
-    if getattr(args, 'full', False):
+    if args.full:
         schema_path = os.path.join(os.path.dirname(__file__), "dsl.schema.json")
         schema = load_json_schema(schema_path)
         valid_triggers = extract_enum_from_schema(schema, "workflow.trigger.type")
@@ -422,23 +449,27 @@ def init_workflow(args):
             print(f"[ERROR] Invalid trigger type '{args.trigger}'. Allowed: {', '.join(valid_triggers)}")
             sys.exit(1)
         
-        selected = [m.strip() for m in args.modules.split(",")] if getattr(args, 'modules', None) else None
-        wf = generate_full_workflow_from_schema_and_modules(schema_path, getattr(args, 'modules_path', 'modules'), selected_modules=selected)
+        selected = [m.strip() for m in args.modules.split(",")] if args.modules else None
+        wf = generate_full_workflow_from_schema_and_modules(schema_path, args.modules_path or "modules", selected_modules=selected)
         wf["workflow"]["name"] = args.name
         wf["workflow"]["trigger"] = {
             "type": args.trigger
         }
-        
+        valid_triggers = {"api", "git", "scheduled", "ad-hoc"}
+        if args.trigger not in valid_triggers:
+            print(f"[ERROR] Unsupported trigger type '{args.trigger}'. Must be one of: {', '.join(valid_triggers)}")
+            sys.exit(1)
+        # Filter context modules to only those actually used in steps
         used_module_names = set(
             step["action"].split(".")[0]
             for step in wf["workflow"]["steps"]
             if "action" in step and isinstance(step["action"], str)
         )
-        if "context_modules" in wf["workflow"]:
-            wf["workflow"]["context_modules"] = {
-                k: v for k, v in wf["workflow"]["context_modules"].items()
-                if v.get("module", "").split(".")[0] in used_module_names
-            }
+        wf["workflow"]["context_modules"] = {
+            k: v for k, v in wf["workflow"]["context_modules"].items()
+            if v.get("module", "").split(".")[0] in used_module_names
+        }
+
 
     else:
         wf = {
@@ -458,10 +489,10 @@ def init_workflow(args):
     header_comment = f"""
         # =============================================
         # SeyoAWE Full Workflow Example
-        # Generated via `sawectl workflow init --full`
+        # Generated via `sawectl init workflow --full`
         # 
-        # 🔗 DSL Reference: https://seyoawe.dev/docs/dsl
-        # 🔗 Modules Reference: https://seyoawe.dev/docs/modules
+        # 🔗 DSL Reference: [https://seyoawe.dev/docs/dsl](https://seyoawe.dev/docs/dsl)
+        # 🔗 Modules Reference: [https://seyoawe.dev/docs/modules](https://seyoawe.dev/docs/modules)
         # 
         # Modify this file to suit your use case.
         # =============================================
@@ -472,9 +503,11 @@ def init_workflow(args):
             del wf["workflow"][k]
 
     with open(path, 'w') as f:
-        f.write(header_comment + "\n")
+        f.write(header_comment + "\\n")
+
 
         dumped = yaml.dump(wf, sort_keys=False, width=120)
+
 
         def add_spacing_to_blocks(text, key):
             lines = text.splitlines()
@@ -486,100 +519,115 @@ def init_workflow(args):
                         result.append("") 
                     inside_block = True
                 result.append(line)
-            return "\n".join(result)
+            return "\\n".join(result)
 
         dumped = add_spacing_to_blocks(dumped, key="steps")
         f.write(dumped)
 
+
     print(f"[INIT] Workflow created at {path}")
+
+
 
 
 # === CLI SETUP ===
 def main():
     parser = argparse.ArgumentParser(
         prog="sawectl",
-        description="The official CLI tool to manage, validate, and run workflows.",
-        add_help=False
+        description="SeyoAWE CLI Tool",
+        add_help=False  # disables auto -h/--help
     )
     parser.add_argument('-h', '--help', action='store_true', help="Show this help message and exit")
     parser.add_argument('-v', '--version', action='version', version=VERSION, help="Show version and exit")
-    
-    # Create the top-level commands
     subparsers = parser.add_subparsers(dest="command")
 
-    # 1. sawectl run <path.yaml>
-    p_run = subparsers.add_parser("run", help="Run ad-hoc workflow")
-    p_run.add_argument("workflow", help="Path to the workflow YAML")
-    p_run.add_argument("--server", required=True, help="Address of the SeyoAWE server (e.g., seyoawe-engine-svc:8080)")
+    # run
+    p_run = subparsers.add_parser("run", help="Run a workflow ad-hoc")
+    p_run.add_argument("--workflow", required=True)
+    p_run.add_argument("--server", required=True)
     p_run.set_defaults(func=run_workflow)
 
-    # 2. sawectl validate-workflow <wf.yaml>
-    p_val = subparsers.add_parser("validate-workflow", help="Deep schema + module validation")
-    p_val.add_argument("workflow", help="Workflow file to validate")
+    # validate-workflow (deep)
+    p_val = subparsers.add_parser("validate-workflow", help="Validate a workflow file deeply")
+    p_val.add_argument("--workflow", required=True)
     p_val.add_argument("--modules", help="Path to modules dir", default="modules")
     p_val.add_argument("--verbose", action="store_true")
     p_val.set_defaults(func=validate_workflow_deep)
 
-    # 3. sawectl list-modules
-    p_list = subparsers.add_parser("list-modules", help="View installed modules")
-    p_list.add_argument("--modules-path", help="Path to modules dir", default="modules")
-    p_list.set_defaults(func=list_modules)
+    # init module/workflow
+    p_init = subparsers.add_parser("init", help="Initialize modules or workflows")
+    sub_init = p_init.add_subparsers(dest="type")
+    p_mod = sub_init.add_parser("module", help="Create a new module")
+    p_mod.add_argument("name")
+    p_mod.add_argument("--modules", help="Path to modules dir", default="modules")
+    p_mod.set_defaults(func=init_module_from_schema)
 
-    # 4. sawectl validate-modules (Kept for compatibility)
-    p_valmod = subparsers.add_parser("validate-modules", help="Validate all module.yaml manifests")
+    # validate-modules
+    p_valmod = subparsers.add_parser("validate-modules", help="Validate all module manifests")
     p_valmod.add_argument("--modules", help="Path to modules dir", default="modules")
     p_valmod.set_defaults(func=validate_all_modules)
 
-    # 5. sawectl workflow
-    p_workflow = subparsers.add_parser("workflow", help="Manage workflows")
-    workflow_subs = p_workflow.add_subparsers(dest="workflow_action")
-    
-    # sawectl workflow init <name>
-    p_wf_init = workflow_subs.add_parser("init", help="Scaffold a new workflow")
-    p_wf_init.add_argument("name", help="Name of the workflow")
-    p_wf_init.add_argument("--minimal", action="store_true")
-    p_wf_init.add_argument("--full", action="store_true")
-    p_wf_init.add_argument("--modules", help="Comma-separated list of modules to include (default: all)")
-    p_wf_init.add_argument("--modules-path", help="Path to modules dir", default="modules")
-    p_wf_init.add_argument("--workflows-path", help="Path to workflows dir", default="workflows")
-    p_wf_init.add_argument("--trigger", help="Trigger type (api | git | scheduled | ad-hoc)", default="api")
-    p_wf_init.set_defaults(func=init_workflow)
+    # init workflow
+    p_wf = sub_init.add_parser("workflow", help="Create a new workflow")
+    p_wf.add_argument("name")
+    p_wf.add_argument("--minimal", action="store_true")
+    p_wf.add_argument("--full", action="store_true")
+    p_wf.add_argument("--modules", help="Comma-separated list of modules to include (default: all)")
+    p_wf.add_argument("--modules-path", help="Path to modules dir", default="modules")
+    p_wf.add_argument("--workflows-path", help="Path to workflows dir", default="workflows")
+    p_wf.add_argument("--trigger", help="Trigger type (api, git, scheduled, etc)", default="api")
+    p_wf.set_defaults(func=init_workflow)
 
-    # 6. sawectl module
-    p_module = subparsers.add_parser("module", help="Manage modules")
-    module_subs = p_module.add_subparsers(dest="module_action")
-    
-    # sawectl module create <name>
-    p_mod_create = module_subs.add_parser("create", help="Scaffold a custom module")
-    p_mod_create.add_argument("name", help="Name of the module")
-    p_mod_create.add_argument("--modules-path", help="Path to modules dir", default="modules")
-    p_mod_create.set_defaults(func=init_module_from_schema)
 
     args = parser.parse_args()
 
     if getattr(args, 'help', False) or not hasattr(args, 'func'):
         print("""
-        🧰 sawectl CLI
-        The official CLI tool to manage, validate, and run workflows.
+        Usage: sawectl <command> [options]
 
-        🔑 Common Commands:
-        sawectl run <path.yaml>             # Run ad-hoc workflow
-        sawectl validate-workflow <wf.yaml> # Deep schema + module validation
-        sawectl list-modules                # View installed modules
-        sawectl workflow init <name>        # Scaffold a new workflow
-        sawectl module create <name>        # Scaffold a custom module
+        SeyoAWE CLI Tool — Workflow Automation for Humans.
+
+        Available commands:
+
+        init workflow         Create a new workflow (minimal or full template)
+        init module           Scaffold a new module with manifest, code, and usage reference
+        run                   Trigger an ad-hoc workflow against a running SeyoAWE engine
+        validate-workflow     Deep-validate a workflow against schema and module manifests
+        validate-modules      Validate all module.yaml manifests in the modules directory
+
+        Options for `init workflow`:
+        --full                        Generate a full workflow based on module usage and schema
+        --minimal                     Generate a minimal stub workflow (default)
+        --modules <csv>              Comma-separated list of module names to include (default: all)
+        --modules-path <dir>         Path to modules directory (default: ./modules)
+        --workflows-path <dir>       Output path for workflow files (default: ./workflows)
+        --trigger <type>             Trigger type (api | git | scheduled | ad-hoc)
+
+        Options for `run`:
+        --workflow <file>            Path to a workflow YAML file
+        --server <host:port>         Address of the SeyoAWE server (e.g., localhost:8080)
+
+        Options for `validate-workflow`:
+        --workflow <file>            Workflow file to validate
+        --modules <dir>              Path to modules directory (default: ./modules)
+        --verbose                    Print detailed validation output
+
+        Options for `validate-modules`:
+        --modules <dir>              Path to modules directory (default: ./modules)
+
+        Examples:
+
+        sawectl init module slack_module
+        sawectl init workflow my_workflow --full --modules slack_module,email_module
+        sawectl run --workflow workflows/my_workflow.yaml --server localhost:8080
+        sawectl validate-workflow --workflow workflows/my_workflow.yaml --verbose
+        sawectl validate-modules
+
+        Documentation → [https://seyoawe.dev/docs](https://seyoawe.dev/docs)
         """)
         sys.exit(0)
-
-    # Required validation for nested subparsers (Python doesn't enforce nested dests by default)
-    if args.command == "workflow" and not args.workflow_action:
-        print("Usage: sawectl workflow init <name>")
-        sys.exit(1)
-    if args.command == "module" and not args.module_action:
-        print("Usage: sawectl module create <name>")
-        sys.exit(1)
-
     args.func(args)
+
 
 if __name__ == "__main__":
     main()
