@@ -491,8 +491,8 @@ def init_workflow(args):
         # SeyoAWE Full Workflow Example
         # Generated via `sawectl init workflow --full`
         # 
-        # 🔗 DSL Reference: [https://seyoawe.dev/docs/dsl](https://seyoawe.dev/docs/dsl)
-        # 🔗 Modules Reference: [https://seyoawe.dev/docs/modules](https://seyoawe.dev/docs/modules)
+        # 🔗 DSL Reference: https://seyoawe.dev/docs/dsl
+        # 🔗 Modules Reference: https://seyoawe.dev/docs/modules
         # 
         # Modify this file to suit your use case.
         # =============================================
@@ -503,7 +503,7 @@ def init_workflow(args):
             del wf["workflow"][k]
 
     with open(path, 'w') as f:
-        f.write(header_comment + "\\n")
+        f.write(header_comment + "\n")
 
 
         dumped = yaml.dump(wf, sort_keys=False, width=120)
@@ -519,7 +519,7 @@ def init_workflow(args):
                         result.append("") 
                     inside_block = True
                 result.append(line)
-            return "\\n".join(result)
+            return "\n".join(result)
 
         dumped = add_spacing_to_blocks(dumped, key="steps")
         f.write(dumped)
@@ -623,7 +623,7 @@ def main():
         sawectl validate-workflow --workflow workflows/my_workflow.yaml --verbose
         sawectl validate-modules
 
-        Documentation → [https://seyoawe.dev/docs](https://seyoawe.dev/docs)
+        Documentation → https://seyoawe.dev/docs
         """)
         sys.exit(0)
     args.func(args)
